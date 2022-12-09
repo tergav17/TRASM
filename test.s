@@ -1,4 +1,5 @@
 label_a:
+	nop
 	ld	a,b
 	foobar
 	
@@ -7,4 +8,4 @@ label_b: ; comment here
 ; another comment
 
 ; one last comment
-	ld b,   a
+	ld b,   0x04
