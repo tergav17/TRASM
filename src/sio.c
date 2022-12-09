@@ -1,7 +1,7 @@
 /*
  * sio.c
  *
- * source input/output
+ * source input/output adapter
  */
 #include "sio.h"
  
@@ -19,40 +19,9 @@ int sio_bufi;
 
 // currently open file
 FILE *sio_curr;
+
+/* ### helper functions ### */ 
  
-/*
- * uses passed arguments to open up files in need of assembly
- * arguments starting with '-' are ignored
- *
- * argc = argument count
- * argv = array of arguments
- */
-void sio_open(int argc, char *argv[])
-{
-	sio_argv = argv;
-	sio_argc = argc;
-
-	sio_curr = NULL;
-	sio_rewind();
-}
-
-/*
- * closes source files when done
- */
-void sio_close()
-{
-	fclose(sio_curr);
-	sio_curr = NULL;
-}
-
-/*
- * returns what sio_next() would but does not move forward
- */
-char sio_peek()
-{
-	return (sio_argi < sio_argc) ? sio_buf[sio_bufi] : -1;
-}
-
 /*
  * loads up the first block of the next file
  */
@@ -88,6 +57,41 @@ void sio_nextfile()
 			printf("%s?\n", sio_argv[sio_argi]);
 		}
 	}
+}
+
+/* ### interface functions ### */ 
+
+/*
+ * uses passed arguments to open up files in need of assembly
+ * arguments starting with '-' are ignored
+ *
+ * argc = argument count
+ * argv = array of arguments
+ */
+void sio_open(int argc, char *argv[])
+{
+	sio_argv = argv;
+	sio_argc = argc;
+
+	sio_curr = NULL;
+	sio_rewind();
+}
+
+/*
+ * closes source files when done
+ */
+void sio_close()
+{
+	fclose(sio_curr);
+	sio_curr = NULL;
+}
+
+/*
+ * returns what sio_next() would but does not move forward
+ */
+char sio_peek()
+{
+	return (sio_argi < sio_argc) ? sio_buf[sio_bufi] : -1;
 }
 
 /*
