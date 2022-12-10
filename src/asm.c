@@ -37,7 +37,8 @@ void asm_wskip()
 
 void asm_error(char *msg)
 {
-	printf("error: %s\n", msg);
+	sio_status();
+	printf(": %s\n", msg);
 	exit(1);
 }
 
@@ -113,6 +114,83 @@ char asm_read_token()
 }
 
 /*
+ * helper function for number parsing, returns radix type from character
+ *
+ * r = radix identifier
+ * returns radix type, or 0 if not a radix
+ */
+char asm_classify_radix(char r)
+{
+	if (r == 'b' || r == 'B') return 2;
+	if (r == 'o' || r == 'O') return 8;
+	if (r == 'x' || r == 'X' || r == 'h' || r == 'H') return 16;
+	return 0;
+}
+
+/*
+ * another helper function, this time to take a decimal / hex char and convert it
+ *
+ * in = char to convert to number
+ * returns number, of -1 if failed
+ */
+int asm_char_parse(char in)
+{
+	if (in >= '0' && in <= '9') return in - '0';
+	else if (in >= 'A' && in <= 'F') return (in - 'A') + 10;
+	else if (in >= 'a' && in <= 'f') return (in - 'a') + 10;
+	return -1;
+}
+
+/*
+ * attempts to parse a number into an unsigned 16 bit integer
+ *
+ * in = pointer to string
+ * returns actual value of number
+ */
+uint16_t asm_num_parse(char *in)
+{
+	int num_start, num_end, i;
+	uint16_t out;
+	char radix; // 0 = ?, 2 = binary, 8 = octal, 10 = decimal, 16 = hex
+	
+	// default is base 10
+	radix = 10;
+	
+	// first skip through any leading zeros, and set octal if there is some
+	for (num_start = 0; in[num_start] == '0'; num_start++)
+		radix = 8;
+	
+	// lets also find the end while we are at it
+	for (num_end = 0; in[num_end] != 0; num_end++);
+	
+	// check and see if there is a radix identifier here
+	if ((i = asm_classify_radix(in[num_start]))) {
+		radix = i;
+		num_start++;
+	} else {
+		// lets check at the end too
+		if ((i = asm_classify_radix(in[num_end - 1]))) {
+			radix = i;
+			num_end--;
+		}
+	}
+	
+	// now to parse
+	out = 0;
+	for (; num_start < num_end; num_start++) {
+		i = asm_char_parse(in[num_start]);
+		
+		// error checking
+		if (i == -1) asm_error("unexpected character in numeric");
+		if (i >= radix) asm_error("radix mismatch in numeric");
+		
+		out = (out * radix) + i;
+	}
+	
+	return out;
+}
+
+/*
  * emits a number of bytes into assembly output
  * no bytes emitted on first pass, only indicies updated
  *
@@ -128,11 +206,12 @@ void asm_emit(char *s, int n)
 /*
  * attempts to assemble an instruction assuming a symbol has just been tokenized
  *
+ * in = pointer to string
  * returns 0 if an instruction is not matched, 1 if it is
  */
-char asm_instr()
+char asm_instr(char *in)
 {
-	if (!strcmp(asm_buf, "nop")) {
+	if (!strcmp(in, "nop")) {
 		asm_emit("\x00", 1);
 		return 1;
 	}
@@ -162,7 +241,7 @@ void asm_pass(int pass)
 		
 		if (sym == 'a')  {
 			// symbol read
-			if (asm_instr()) {
+			if (asm_instr(asm_buf)) {
 				// its an instruction
 				sym = asm_read_token();
 				if (sym != 'n')
@@ -172,7 +251,7 @@ void asm_pass(int pass)
 			}
 		} else if (sym == '0') {
 			// numeric read
-			printf("Numeric: %s\n", asm_buf);
+			printf("Numeric: %d\n", asm_num_parse(asm_buf));
 		}
 		else printf("Read: %c\n", sym);
 	}

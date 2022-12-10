@@ -5,7 +5,7 @@ label_a:
 	
 label_b: ; comment here
 	jp	label_a
-; another comment
+; another comment 
 
 ; one last comment
-	ld b,   0x04
+	ld b,08

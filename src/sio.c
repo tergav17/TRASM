@@ -17,11 +17,15 @@ char sio_buf[512];
 int sio_bufc;
 int sio_bufi;
 
+// current line number
+int sio_line;
+
 // currently open file
 FILE *sio_curr;
 
 /* ### helper functions ### */ 
  
+
 /*
  * loads up the first block of the next file
  */
@@ -35,6 +39,9 @@ void sio_nextfile()
 	
 	// attempt to open the next file
 	for (sio_argi++; sio_argi < sio_argc; sio_argi++) {
+		
+		// reset line pointer
+		sio_line = 1;
 		
 		// do not open arguments that start with '-'
 		if (sio_argv[sio_argi][0] == '-')
@@ -118,6 +125,9 @@ char sio_next()
 			}
 	}
 	
+	// if we have just passed a line break, increment the pointer
+	if (out == '\n') sio_line++;
+	
 	return out;
 }
 
@@ -129,4 +139,12 @@ void sio_rewind()
 	sio_argi = 0;
 	
 	sio_nextfile();
+}
+
+/*
+ * prints the current state of the input, whatever that looks like
+ */
+void sio_status()
+{
+	printf("%s,%d", sio_argv[sio_argi], sio_line);
 }

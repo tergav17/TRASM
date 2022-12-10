@@ -7,5 +7,6 @@ void sio_close();
 char sio_peek();
 char sio_next();
 void sio_rewind();
+void sio_status();
 
 #endif
