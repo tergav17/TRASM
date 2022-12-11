@@ -8,7 +8,6 @@
 
 #include <stdio.h>
 #include <string.h>
-#include <stdint.h>
 #include <stdlib.h>
 
 
@@ -34,9 +33,38 @@ uint16_t asm_vstack[EXP_STACK_DEPTH];
 /* expression stack */
 char asm_estack[EXP_STACK_DEPTH];
 
+/* heap top */
+int asm_heap_top;
+
+/* head of symbol list */
+struct symbol *asm_sym_table;
+
 /* since this is suppose to work like the assembly version, we will preallocate a heap */
 char asm_heap[HEAP_SIZE];
 
+/*
+ * resets the top of the heap to the bottom
+ */
+void asm_heap_reset()
+{
+	asm_heap_top = 0;
+	asm_sym_table = NULL;
+}
+
+/*
+ * allocates memory from the heap
+ *
+ * size = number of bytes to allocate
+ */
+void *asm_alloc(int size)
+{
+	int old_pointer;
+	
+	old_pointer = asm_heap_top;
+	asm_heap_top += size;
+	
+	return (void *) &asm_heap[old_pointer];
+}
 /*
  * skips past all of the white space to a token
  */
@@ -211,6 +239,28 @@ uint16_t asm_num_parse(char *in)
 char asm_sym_fetch(char *sym, uint16_t *result)
 {
 	return 0;
+}
+
+/*
+ * defines or redefines a symbol
+ *
+ * sym = symbol name
+ * type = symbol type ([0] = relocatable / static, [1] = global / local)
+ * parent = parent name
+ * value = value of symbol
+ */
+void asm_sym_update(char *sym, char type, char *parent, uint16_t value)
+{
+	struct symbol *entry;
+	
+	if (!asm_sym_table) {
+		entry = asm_sym_table = (struct symbol *) asm_alloc(sizeof(struct symbol));
+	} else {
+		entry = asm_sym_table;
+	}
+	
+	// update the symbol
+	entry->type = type;
 }
 
 /*
