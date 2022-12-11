@@ -26,6 +26,17 @@ uint16_t asm_index;
 /* current pass */
 char asm_curr_pass;
 
+/* the expression evaluator requires some larger data structures, lets define them */
+
+/* value stack */
+uint16_t asm_vstack[EXP_STACK_DEPTH];
+
+/* expression stack */
+char asm_estack[EXP_STACK_DEPTH];
+
+/* since this is suppose to work like the assembly version, we will preallocate a heap */
+char asm_heap[HEAP_SIZE];
+
 /*
  * skips past all of the white space to a token
  */
@@ -191,6 +202,276 @@ uint16_t asm_num_parse(char *in)
 }
 
 /*
+ * fetches the symbol
+ *
+ * sym = pointer to symbol name
+ * result = pointer where result will be placed in
+ * returns status 0 = unresolved, 1 = relocatable, 2 = static
+ */
+char asm_sym_fetch(char *sym, uint16_t *result)
+{
+	return 0;
+}
+
+/*
+ * pops a value off the estack and evaluates it in the vstack
+ *
+ * eindex = pointer to expression index
+ * vindex = pointer to value index
+ */
+void asm_estack_pop(int *eindex, int *vindex)
+{
+	uint16_t a,b, res;
+	char op;
+	
+	// check if expression stack is empty
+	if (!(*eindex)) asm_error("expression stack depletion");
+	
+	// pop off estack
+	op = asm_estack[--*eindex];
+	
+	// attempt to pop out two values from the value stack
+	if (*vindex < 2) asm_error("value stack depletion");
+	
+	b = asm_vstack[--*vindex];
+	a = asm_vstack[--*vindex];
+	
+	switch (op) {
+		case '!':
+			res = a | ~b;
+			break;
+		
+		case '+':
+			res = a + b;
+			break;
+			
+		case '-':
+			res = a - b;
+			break;
+			
+		case '*':
+			res = a * b;
+			break;
+			
+		case '/':
+			if (b == 0) {
+				if (asm_curr_pass == 0) res = 0;
+				else asm_error("zero divide");
+			} else
+				res = a / b;
+			break;
+			
+		case '%':
+			res = a % b;
+			break;
+			
+		case '>':
+			res = a >> b;
+			break;
+			
+		case '<':
+			res = a << b;
+			break;
+			
+		case '&':
+			res = a & b;
+			break;
+		
+		case '^':
+			res = a ^ b;
+			break;
+			
+		case '|':
+			res = a | b;
+			break;
+			
+		case '(':
+			asm_error("unexpected '('");
+		
+		default:
+			res = 0;
+			break;
+	}
+	
+	// push into stack
+	asm_vstack[(*vindex)++] = res;
+}
+
+/*
+ * pushes a expression onto the estack
+ *
+ * eindex = pointer to expression idnex
+ * op = expression to push
+ */
+void asm_estack_push(int *eindex, char op)
+{
+	if (*eindex >= EXP_STACK_DEPTH) asm_error("expression stack overflow");
+	asm_estack[(*eindex)++] = op;
+}
+
+/*
+ * pushes a value onto the vstack
+ *
+ * vindex = pointer to value index
+ * val = value to push
+ */
+void asm_vstack_push(int *vindex, uint16_t val)
+{
+	if (*vindex >= EXP_STACK_DEPTH) asm_error("value stack overflow");
+	asm_vstack[(*vindex)++] = val;
+}
+
+/*
+ * returns the precedence of a specific token
+ *
+ * tok = token
+ * returns precedence of token
+ */
+int asm_precedence(char tok)
+{
+	switch (tok) {
+		case '!':
+			return 1;
+			
+		case '+':
+		case '-':
+			return 2;
+			
+		case '*':
+		case '/':
+		case '%':
+			return 3;
+			
+		case '>':
+		case '<':
+			return 4;
+			
+		case '&':
+			return 5;
+		
+		case '^':
+			return 6;
+			
+		case '|':
+			return 7;
+			
+		case '(':
+			return 0;
+			
+		default:
+			return 99;
+	}
+}
+
+/*
+ * checks to see if there is a left parathesis in the expression stack
+ *
+ * size = size of stack
+ * returns 1 if true, otherwise 0
+ */
+char asm_estack_has_lpar(int size) 
+{
+	int i;
+	
+	for (i = 0; i < size; i++)
+		if (asm_estack[i] == '(') return 1;
+	
+	return 0;
+}
+
+/*
+ * evaluates an expression that is next in the token queue
+ *
+ * result = pointer where result will be placed in
+ * returns status 0 = unresolved, 1 = relocatable, 2 = static
+ */
+char asm_evaluate(uint16_t *result)
+{
+	char tok, op, status, reloc;
+	uint16_t num;
+	int vindex, eindex;
+	
+	// reset indicies
+	vindex = eindex = 0;
+	
+	// check for relocation
+	if (sio_peek() == '*') {
+		asm_read_token();
+		reloc = 1;
+	} else reloc = 2;
+	
+	while (1) {
+		tok = asm_read_token();
+		
+		if (tok == 'a') {
+			// it is a symbol
+			op = 0;
+			status = asm_sym_fetch(asm_buf, &num);
+			if (status < reloc) reloc = status;
+		} else if (tok == '0') {
+			// it is a numeric
+			op = 0;
+			num = asm_num_parse(asm_buf);
+		} else {
+			// it is a token (hopefully mathematic)
+			op = -1;
+			
+			if (tok == '+' || tok == '-' || tok == '*' || tok == '/' || 
+				tok == '&' || tok == '|' || tok == '%' || tok == '!' ||
+				tok == '^' || tok == '(' || tok == ')') op = tok;
+				
+			if (tok == '>' || tok == '<') {
+				if (tok != sio_peek()) op = -1;
+				else op = tok;
+				
+				asm_read_token();
+			}
+			
+			if (op == -1) asm_error("unknown token in expression");
+		}
+		
+		// now lets handle the token
+		if (op != ')' && op != '(' && op) {
+			// handle operators
+			
+			// pop off anything in the stack that is of higher precedence
+			while (eindex && asm_precedence(op) <= asm_precedence(asm_estack[eindex - 1]))
+				asm_estack_pop(&eindex, &vindex);
+			
+			asm_estack_push(&eindex, op);
+		} else if (op == '(') {
+			// handle left parathesis 
+			asm_estack_push(&eindex, '(');
+		} else if (op == ')') {
+			if (!asm_estack_has_lpar(eindex))
+				asm_error("unexpected ')'");
+			
+			while (asm_estack[eindex - 1] != '(')
+				asm_estack_pop(&eindex, &vindex);
+			
+			// pop the '(' too
+			eindex--;
+		} else {
+			// handle numbers
+			asm_vstack_push(&vindex, num);
+		}
+		
+		// check for ending conditions
+		if (sio_peek() == ',' || sio_peek() == '\n' || sio_peek() == -1) break;
+		if (sio_peek() == ')' && !asm_estack_has_lpar(eindex)) break;
+			
+	}
+	
+	while (eindex) asm_estack_pop(&eindex, &vindex);
+	
+	if (vindex != 1) asm_error("value stack overpopulation");
+	
+	*result = asm_vstack[0];
+	
+	return reloc;
+}
+
+/*
  * emits a number of bytes into assembly output
  * no bytes emitted on first pass, only indicies updated
  *
@@ -211,8 +492,14 @@ void asm_emit(char *s, int n)
  */
 char asm_instr(char *in)
 {
+	uint16_t result;
+	
 	if (!strcmp(in, "nop")) {
 		asm_emit("\x00", 1);
+		return 1;
+	} else if (!strcmp(in, "test")) {
+		asm_evaluate(&result);
+		printf("Exp: %d\n", result);
 		return 1;
 	}
 	
@@ -226,7 +513,7 @@ char asm_instr(char *in)
  */
 void asm_pass(int pass)
 {
-	char sym;
+	char tok;
 
 	asm_curr_pass = pass;
 
@@ -236,23 +523,23 @@ void asm_pass(int pass)
 	// general line input stuff
 	while (1) {
 		// Read the next 
-		sym = asm_read_token();
-		if (sym == -1) break;
+		tok = asm_read_token();
+		if (tok == -1) break;
 		
-		if (sym == 'a')  {
+		if (tok == 'a')  {
 			// symbol read
 			if (asm_instr(asm_buf)) {
 				// its an instruction
-				sym = asm_read_token();
-				if (sym != 'n')
+				tok = asm_read_token();
+				if (tok != 'n')
 					asm_error("expected end of line");
 			} else {
 				printf("Symbol: %s\n", asm_buf);
 			}
-		} else if (sym == '0') {
+		} else if (tok == '0') {
 			// numeric read
 			printf("Numeric: %d\n", asm_num_parse(asm_buf));
 		}
-		else printf("Read: %c\n", sym);
+		else printf("Read: %c\n", tok);
 	}
 }
