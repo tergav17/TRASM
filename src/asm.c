@@ -233,34 +233,83 @@ uint16_t asm_num_parse(char *in)
  * fetches the symbol
  *
  * sym = pointer to symbol name
- * result = pointer where result will be placed in
- * returns status 0 = unresolved, 1 = relocatable, 2 = static
+ * returns pointer to found symbol, or null
  */
-char asm_sym_fetch(char *sym, uint16_t *result)
+struct symbol *asm_sym_fetch(char *sym)
 {
-	return 0;
+	struct symbol *entry;
+	int i;
+	char equal;
+	
+	// search for the symbol
+	entry = asm_sym_table;
+	
+	while (entry) {
+		// compare strings
+		equal = 1;
+		for (i = 0; i < 9 && entry->name[i] != 0; i++)
+			if (entry->name[i] != sym[i]) equal = 0;
+		
+		if (equal) return entry;
+		
+		entry = entry->next;
+	}
+	
+	
+	return NULL;
 }
 
 /*
  * defines or redefines a symbol
  *
  * sym = symbol name
- * type = symbol type ([0] = relocatable / static, [1] = global / local)
+ * type = symbol type (1 = relocatable, 2 = static)
  * parent = parent name
  * value = value of symbol
  */
 void asm_sym_update(char *sym, char type, char *parent, uint16_t value)
 {
 	struct symbol *entry;
+	int i;
 	
-	if (!asm_sym_table) {
+	entry = asm_sym_fetch(sym);
+	
+	if (entry) {
+		// do nothing
+	} if (!asm_sym_table) {
 		entry = asm_sym_table = (struct symbol *) asm_alloc(sizeof(struct symbol));
+		entry->parent = NULL;
+		
+		// copy name
+		for (i = 0; i < 8 && sym[i] != 0; i++)
+			entry->name[i] = sym[i];
+		entry->name[i] = 0;
 	} else {
 		entry = asm_sym_table;
+		
+		// get the last entry in the table;
+		while (entry->next)
+			entry = entry->next;
+		
+		entry->next = (struct symbol *) asm_alloc(sizeof(struct symbol));
+		entry = entry->next;
+		entry->parent = NULL;
+		
+		// copy name
+		for (i = 0; i < 8 && sym[i] != 0; i++)
+			entry->name[i] = sym[i];
+		entry->name[i] = 0;
+			
 	}
 	
 	// update the symbol
 	entry->type = type;
+	if (parent != NULL) {
+		entry->parent = asm_sym_fetch(parent);
+		if (entry->parent == NULL)
+			asm_error("parent types does not exist");
+	}
+	entry->value = value;
 }
 
 /*
@@ -437,8 +486,9 @@ char asm_estack_has_lpar(int size)
  */
 char asm_evaluate(uint16_t *result)
 {
-	char tok, op, status, reloc;
+	char tok, op, reloc;
 	uint16_t num;
+	struct symbol *sym;
 	int vindex, eindex;
 	
 	// reset indicies
@@ -456,8 +506,9 @@ char asm_evaluate(uint16_t *result)
 		if (tok == 'a') {
 			// it is a symbol
 			op = 0;
-			status = asm_sym_fetch(asm_buf, &num);
-			if (status < reloc) reloc = status;
+			sym = asm_sym_fetch(asm_buf);
+			if (sym->type < reloc) reloc = sym->type;
+			num = sym->value;
 		} else if (tok == '0') {
 			// it is a numeric
 			op = 0;

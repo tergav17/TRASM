@@ -146,5 +146,5 @@ void sio_rewind()
  */
 void sio_status()
 {
-	printf("%s,%d", sio_argv[sio_argi], sio_line);
+	printf("%s:%d", sio_argv[sio_argi], sio_line);
 }
