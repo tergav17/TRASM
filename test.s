@@ -1,12 +1,5 @@
-label_a:
-	nop
-	ld	a,b
-	foobar
-	test 2+3
-	
-label_b: ; comment here
-	jp	label_a
-; another comment 
-
-; one last comment
-	ld b,07
+	test	4+4
+foobar1 = 5
+foobar2 = 7
+foobar3 = foobar1!foobar2
+	test foobar3

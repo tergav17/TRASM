@@ -10,11 +10,14 @@
 #define HEAP_SIZE (1024 * HEAP_SIZE_KB)
 #define EXP_STACK_DEPTH 16
 
+#define TOKEN_BUF_SIZE 16
+
 /* structs */
 
 struct symbol {
 	char type;
 	char name[9];
+	uint8_t size;
 	uint16_t value;
 	struct symbol *parent;
 	struct symbol *next;
@@ -27,7 +30,7 @@ struct value_list {
 
 /* interface functions */
 
-void asm_heap_reset();
+void asm_reset();
 void asm_pass(int pass);
 
 #endif

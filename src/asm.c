@@ -16,7 +16,8 @@
  */
 
 /* token buffer */
-char token_buf[32];
+char token_buf[TOKEN_BUF_SIZE];
+char token_cache[TOKEN_BUF_SIZE];
 
 /* current assembly address and index */
 uint16_t asm_address;
@@ -43,15 +44,6 @@ struct symbol *sym_table;
 char heap[HEAP_SIZE];
 
 /*
- * resets the top of the heap to the bottom
- */
-void asm_heap_reset()
-{
-	heap_top = 0;
-	sym_table = NULL;
-}
-
-/*
  * allocates memory from the heap
  *
  * size = number of bytes to allocate
@@ -65,6 +57,31 @@ void *asm_alloc(int size)
 	
 	return (void *) &heap[old_pointer];
 }
+
+/*
+ * resets the top of the heap to the bottom
+ */
+void asm_reset()
+{
+	heap_top = 0;
+	sym_table = NULL;
+	
+	// allocate empty table
+	sym_table = (struct symbol *) asm_alloc(sizeof(struct symbol));
+}
+
+/*
+ * moves the contents of token_buf into token_cache
+ */
+void asm_token_cache()
+{
+	int i;
+	
+	for (i = 0; i < TOKEN_BUF_SIZE; i++)
+		token_cache[i] = token_buf[i];
+}
+
+
 /*
  * skips past all of the white space to a token
  */
@@ -107,7 +124,7 @@ char asm_num(char in)
  * reads the next token in from the source, buffers if needed, and returns type
  * white space will by cycled past, both in front and behind the token
  */
-char asm_read_token() 
+char asm_token_read() 
 {
 	char c, out;
 	int i;
@@ -126,7 +143,7 @@ char asm_read_token()
 			// scan in the buffer if needed
 		i = 0;
 		while (asm_num(c) || asm_alpha(c)) {
-			if (i < sizeof(token_buf) - 1)
+			if (i < TOKEN_BUF_SIZE - 1)
 				token_buf[i++] = c;
 			
 			sio_next();
@@ -242,9 +259,10 @@ struct symbol *asm_sym_fetch(struct symbol *parent, char *sym)
 	char equal;
 	
 	// search for the symbol
-	entry = parent;
+	entry = parent->next;
 	
 	while (entry) {
+		
 		// compare strings
 		equal = 1;
 		for (i = 0; i < 9 && entry->name[i] != 0; i++)
@@ -263,28 +281,18 @@ struct symbol *asm_sym_fetch(struct symbol *parent, char *sym)
  * defines or redefines a symbol
  *
  * sym = symbol name
- * type = symbol type (1 = relocatable, 2 = static)
+ * type = symbol type (0 = undefined, 1 = relocatable, 2 = static)
  * parent = parent name
  * value = value of symbol
  */
-void asm_sym_update(char *sym, char type, char *parent, uint16_t value)
+void asm_sym_update(struct symbol *table, char *sym, char type, char *parent, uint16_t value)
 {
 	struct symbol *entry;
 	int i;
 	
-	entry = asm_sym_fetch(sym_table, sym);
+	entry = asm_sym_fetch(table, sym);
 	
-	if (entry) {
-		// do nothing
-	} if (!sym_table) {
-		entry = sym_table = (struct symbol *) asm_alloc(sizeof(struct symbol));
-		entry->parent = NULL;
-		
-		// copy name
-		for (i = 0; i < 8 && sym[i] != 0; i++)
-			entry->name[i] = sym[i];
-		entry->name[i] = 0;
-	} else {
+	if (!entry) {
 		entry = sym_table;
 		
 		// get the last entry in the table;
@@ -294,6 +302,7 @@ void asm_sym_update(char *sym, char type, char *parent, uint16_t value)
 		entry->next = (struct symbol *) asm_alloc(sizeof(struct symbol));
 		entry = entry->next;
 		entry->parent = NULL;
+		entry->size = 0;
 		
 		// copy name
 		for (i = 0; i < 8 && sym[i] != 0; i++)
@@ -496,12 +505,12 @@ char asm_evaluate(uint16_t *result)
 	
 	// check for relocation
 	if (sio_peek() == '*') {
-		asm_read_token();
+		asm_token_read();
 		reloc = 1;
 	} else reloc = 2;
 	
 	while (1) {
-		tok = asm_read_token();
+		tok = asm_token_read();
 		
 		if (tok == 'a') {
 			// it is a symbol
@@ -525,7 +534,7 @@ char asm_evaluate(uint16_t *result)
 				if (tok != sio_peek()) op = -1;
 				else op = tok;
 				
-				asm_read_token();
+				asm_token_read();
 			}
 			
 			if (op == -1) asm_error("unknown token in expression");
@@ -614,7 +623,8 @@ char asm_instr(char *in)
  */
 void asm_pass(int pass)
 {
-	char tok;
+	char tok, type;
+	uint16_t res;
 
 	asm_curr_pass = pass;
 
@@ -624,16 +634,26 @@ void asm_pass(int pass)
 	// general line input stuff
 	while (1) {
 		// Read the next 
-		tok = asm_read_token();
+		tok = asm_token_read();
 		if (tok == -1) break;
 		
 		if (tok == 'a')  {
 			// symbol read
 			if (asm_instr(token_buf)) {
 				// its an instruction
-				tok = asm_read_token();
+				tok = asm_token_read();
 				if (tok != 'n')
 					asm_error("expected end of line");
+			} else  if (sio_peek() == '=') {
+				// its a symbol definition
+				asm_token_cache();
+				asm_token_read();
+				
+				// evaluate the expression
+				type = asm_evaluate(&res);
+				
+				// set the new symbol
+				asm_sym_update(sym_table, token_cache, type, NULL, res);
 			} else {
 				printf("Symbol: %s\n", token_buf);
 			}

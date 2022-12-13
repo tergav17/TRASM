@@ -13,8 +13,8 @@ int main(int argc, char *argv[])
 	// open up the source files
 	sio_open(argc, argv);
 	
-	//reset assembler heap
-	asm_heap_reset();
+	//reset assembler heap and data structures
+	asm_reset();
 	
 	// do first pass
 	asm_pass(0);
