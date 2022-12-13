@@ -15,8 +15,8 @@
  * there are a number of global variables to reduce the amount of data being passed
  */
 
-/* assembly buffer */
-char asm_buf[32];
+/* token buffer */
+char token_buf[32];
 
 /* current assembly address and index */
 uint16_t asm_address;
@@ -28,27 +28,27 @@ char asm_curr_pass;
 /* the expression evaluator requires some larger data structures, lets define them */
 
 /* value stack */
-uint16_t asm_vstack[EXP_STACK_DEPTH];
+uint16_t exp_vstack[EXP_STACK_DEPTH];
 
 /* expression stack */
-char asm_estack[EXP_STACK_DEPTH];
+char exp_estack[EXP_STACK_DEPTH];
 
 /* heap top */
-int asm_heap_top;
+int heap_top;
 
 /* head of symbol list */
-struct symbol *asm_sym_table;
+struct symbol *sym_table;
 
 /* since this is suppose to work like the assembly version, we will preallocate a heap */
-char asm_heap[HEAP_SIZE];
+char heap[HEAP_SIZE];
 
 /*
  * resets the top of the heap to the bottom
  */
 void asm_heap_reset()
 {
-	asm_heap_top = 0;
-	asm_sym_table = NULL;
+	heap_top = 0;
+	sym_table = NULL;
 }
 
 /*
@@ -60,10 +60,10 @@ void *asm_alloc(int size)
 {
 	int old_pointer;
 	
-	old_pointer = asm_heap_top;
-	asm_heap_top += size;
+	old_pointer = heap_top;
+	heap_top += size;
 	
-	return (void *) &asm_heap[old_pointer];
+	return (void *) &heap[old_pointer];
 }
 /*
  * skips past all of the white space to a token
@@ -126,13 +126,13 @@ char asm_read_token()
 			// scan in the buffer if needed
 		i = 0;
 		while (asm_num(c) || asm_alpha(c)) {
-			if (i < sizeof(asm_buf) - 1)
-				asm_buf[i++] = c;
+			if (i < sizeof(token_buf) - 1)
+				token_buf[i++] = c;
 			
 			sio_next();
 			c = sio_peek();
 		}
-		asm_buf[i] = 0;
+		token_buf[i] = 0;
 	} else if (out == ';') {
 			// if comment, just skip everything till the next line break
 			while (sio_peek() != '\n' && sio_peek() != -1)
@@ -235,14 +235,14 @@ uint16_t asm_num_parse(char *in)
  * sym = pointer to symbol name
  * returns pointer to found symbol, or null
  */
-struct symbol *asm_sym_fetch(char *sym)
+struct symbol *asm_sym_fetch(struct symbol *parent, char *sym)
 {
 	struct symbol *entry;
 	int i;
 	char equal;
 	
 	// search for the symbol
-	entry = asm_sym_table;
+	entry = parent;
 	
 	while (entry) {
 		// compare strings
@@ -272,12 +272,12 @@ void asm_sym_update(char *sym, char type, char *parent, uint16_t value)
 	struct symbol *entry;
 	int i;
 	
-	entry = asm_sym_fetch(sym);
+	entry = asm_sym_fetch(sym_table, sym);
 	
 	if (entry) {
 		// do nothing
-	} if (!asm_sym_table) {
-		entry = asm_sym_table = (struct symbol *) asm_alloc(sizeof(struct symbol));
+	} if (!sym_table) {
+		entry = sym_table = (struct symbol *) asm_alloc(sizeof(struct symbol));
 		entry->parent = NULL;
 		
 		// copy name
@@ -285,7 +285,7 @@ void asm_sym_update(char *sym, char type, char *parent, uint16_t value)
 			entry->name[i] = sym[i];
 		entry->name[i] = 0;
 	} else {
-		entry = asm_sym_table;
+		entry = sym_table;
 		
 		// get the last entry in the table;
 		while (entry->next)
@@ -305,7 +305,7 @@ void asm_sym_update(char *sym, char type, char *parent, uint16_t value)
 	// update the symbol
 	entry->type = type;
 	if (parent != NULL) {
-		entry->parent = asm_sym_fetch(parent);
+		entry->parent = asm_sym_fetch(sym_table, parent);
 		if (entry->parent == NULL)
 			asm_error("parent types does not exist");
 	}
@@ -318,7 +318,7 @@ void asm_sym_update(char *sym, char type, char *parent, uint16_t value)
  * eindex = pointer to expression index
  * vindex = pointer to value index
  */
-void asm_estack_pop(int *eindex, int *vindex)
+void exp_estack_pop(int *eindex, int *vindex)
 {
 	uint16_t a,b, res;
 	char op;
@@ -327,13 +327,13 @@ void asm_estack_pop(int *eindex, int *vindex)
 	if (!(*eindex)) asm_error("expression stack depletion");
 	
 	// pop off estack
-	op = asm_estack[--*eindex];
+	op = exp_estack[--*eindex];
 	
 	// attempt to pop out two values from the value stack
 	if (*vindex < 2) asm_error("value stack depletion");
 	
-	b = asm_vstack[--*vindex];
-	a = asm_vstack[--*vindex];
+	b = exp_vstack[--*vindex];
+	a = exp_vstack[--*vindex];
 	
 	switch (op) {
 		case '!':
@@ -393,7 +393,7 @@ void asm_estack_pop(int *eindex, int *vindex)
 	}
 	
 	// push into stack
-	asm_vstack[(*vindex)++] = res;
+	exp_vstack[(*vindex)++] = res;
 }
 
 /*
@@ -402,10 +402,10 @@ void asm_estack_pop(int *eindex, int *vindex)
  * eindex = pointer to expression idnex
  * op = expression to push
  */
-void asm_estack_push(int *eindex, char op)
+void exp_estack_push(int *eindex, char op)
 {
 	if (*eindex >= EXP_STACK_DEPTH) asm_error("expression stack overflow");
-	asm_estack[(*eindex)++] = op;
+	exp_estack[(*eindex)++] = op;
 }
 
 /*
@@ -414,10 +414,10 @@ void asm_estack_push(int *eindex, char op)
  * vindex = pointer to value index
  * val = value to push
  */
-void asm_vstack_push(int *vindex, uint16_t val)
+void exp_vstack_push(int *vindex, uint16_t val)
 {
 	if (*vindex >= EXP_STACK_DEPTH) asm_error("value stack overflow");
-	asm_vstack[(*vindex)++] = val;
+	exp_vstack[(*vindex)++] = val;
 }
 
 /*
@@ -468,12 +468,12 @@ int asm_precedence(char tok)
  * size = size of stack
  * returns 1 if true, otherwise 0
  */
-char asm_estack_has_lpar(int size) 
+char exp_estack_has_lpar(int size) 
 {
 	int i;
 	
 	for (i = 0; i < size; i++)
-		if (asm_estack[i] == '(') return 1;
+		if (exp_estack[i] == '(') return 1;
 	
 	return 0;
 }
@@ -506,13 +506,13 @@ char asm_evaluate(uint16_t *result)
 		if (tok == 'a') {
 			// it is a symbol
 			op = 0;
-			sym = asm_sym_fetch(asm_buf);
+			sym = asm_sym_fetch(sym_table, token_buf);
 			if (sym->type < reloc) reloc = sym->type;
 			num = sym->value;
 		} else if (tok == '0') {
 			// it is a numeric
 			op = 0;
-			num = asm_num_parse(asm_buf);
+			num = asm_num_parse(token_buf);
 		} else {
 			// it is a token (hopefully mathematic)
 			op = -1;
@@ -536,38 +536,38 @@ char asm_evaluate(uint16_t *result)
 			// handle operators
 			
 			// pop off anything in the stack that is of higher precedence
-			while (eindex && asm_precedence(op) <= asm_precedence(asm_estack[eindex - 1]))
-				asm_estack_pop(&eindex, &vindex);
+			while (eindex && asm_precedence(op) <= asm_precedence(exp_estack[eindex - 1]))
+				exp_estack_pop(&eindex, &vindex);
 			
-			asm_estack_push(&eindex, op);
+			exp_estack_push(&eindex, op);
 		} else if (op == '(') {
 			// handle left parathesis 
-			asm_estack_push(&eindex, '(');
+			exp_estack_push(&eindex, '(');
 		} else if (op == ')') {
-			if (!asm_estack_has_lpar(eindex))
+			if (!exp_estack_has_lpar(eindex))
 				asm_error("unexpected ')'");
 			
-			while (asm_estack[eindex - 1] != '(')
-				asm_estack_pop(&eindex, &vindex);
+			while (exp_estack[eindex - 1] != '(')
+				exp_estack_pop(&eindex, &vindex);
 			
 			// pop the '(' too
 			eindex--;
 		} else {
 			// handle numbers
-			asm_vstack_push(&vindex, num);
+			exp_vstack_push(&vindex, num);
 		}
 		
 		// check for ending conditions
 		if (sio_peek() == ',' || sio_peek() == '\n' || sio_peek() == -1) break;
-		if (sio_peek() == ')' && !asm_estack_has_lpar(eindex)) break;
+		if (sio_peek() == ')' && !exp_estack_has_lpar(eindex)) break;
 			
 	}
 	
-	while (eindex) asm_estack_pop(&eindex, &vindex);
+	while (eindex) exp_estack_pop(&eindex, &vindex);
 	
 	if (vindex != 1) asm_error("value stack overpopulation");
 	
-	*result = asm_vstack[0];
+	*result = exp_vstack[0];
 	
 	return reloc;
 }
@@ -629,17 +629,17 @@ void asm_pass(int pass)
 		
 		if (tok == 'a')  {
 			// symbol read
-			if (asm_instr(asm_buf)) {
+			if (asm_instr(token_buf)) {
 				// its an instruction
 				tok = asm_read_token();
 				if (tok != 'n')
 					asm_error("expected end of line");
 			} else {
-				printf("Symbol: %s\n", asm_buf);
+				printf("Symbol: %s\n", token_buf);
 			}
 		} else if (tok == '0') {
 			// numeric read
-			printf("Numeric: %d\n", asm_num_parse(asm_buf));
+			printf("Numeric: %d\n", asm_num_parse(token_buf));
 		}
 		else printf("Read: %c\n", tok);
 	}
