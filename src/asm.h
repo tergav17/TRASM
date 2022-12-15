@@ -17,7 +17,7 @@
 struct symbol {
 	char type;
 	char name[9];
-	uint8_t size;
+	uint16_t size;
 	uint16_t value;
 	struct symbol *parent;
 	struct symbol *next;

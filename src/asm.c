@@ -87,10 +87,18 @@ void asm_token_cache()
  */
 void asm_wskip()
 {
-	while (sio_peek() <= ' ' && sio_peek() != '\n' && sio_peek() != -1)
-		sio_next();
+	char comment;
+	
+	comment = 0;
+	while ((sio_peek() <= ' ' || sio_peek() == ';' || comment) && sio_peek() != '\n' && sio_peek() != -1)
+		if (sio_next() == ';') comment = 1;
 }
 
+/*
+ * prints out an error message and exits
+ *
+ * msg = error message
+ */
 void asm_error(char *msg)
 {
 	sio_status();
@@ -150,12 +158,6 @@ char asm_token_read()
 			c = sio_peek();
 		}
 		token_buf[i] = 0;
-	} else if (out == ';') {
-			// if comment, just skip everything till the next line break
-			while (sio_peek() != '\n' && sio_peek() != -1)
-				sio_next();
-			
-			out = sio_next();
 	} else {
 		sio_next();
 	}
@@ -516,8 +518,13 @@ char asm_evaluate(uint16_t *result)
 			// it is a symbol
 			op = 0;
 			sym = asm_sym_fetch(sym_table, token_buf);
-			if (sym->type < reloc) reloc = sym->type;
-			num = sym->value;
+			if (sym) {
+				if (sym->type < reloc) reloc = sym->type;
+				num = sym->value;
+			} else {
+				reloc = 0;
+				num = 0;
+			}
 		} else if (tok == '0') {
 			// it is a numeric
 			op = 0;
@@ -567,8 +574,9 @@ char asm_evaluate(uint16_t *result)
 		}
 		
 		// check for ending conditions
-		if (sio_peek() == ',' || sio_peek() == '\n' || sio_peek() == -1) break;
-		if (sio_peek() == ')' && !exp_estack_has_lpar(eindex)) break;
+		tok = sio_peek();
+		if (tok == ',' || tok == '\n' || tok == -1) break;
+		if (tok == ')' && !exp_estack_has_lpar(eindex)) break;
 			
 	}
 	
@@ -595,6 +603,52 @@ void asm_emit(char *s, int n)
 }
 
 /*
+ * grabs the size of a type, and returns its parent symbol chain
+ *
+ * type = name of type
+ * result = size of symbol, 0 if does not exist
+ * returns parent symbol chain
+ */
+struct symbol *asm_type_size(char *type, uint16_t *result)
+{
+	struct symbol *sym;
+	
+	// built in types
+	if (!strcmp(type, "byte")) {
+		*result = 1;
+		return NULL;
+	}
+	
+	// else, look in the symbol table
+	sym = asm_sym_fetch(sym_table, type);
+	
+	if (sym) {
+		*result = sym->size;
+		return sym;
+	}
+	
+	// can't find
+	*result = 0;
+	return NULL;
+}
+
+/*
+ * parses a definition out of the token queue, and emits it
+ *
+ *
+ */
+void asm_define(char *type, uint16_t count)
+{
+	symbol sym *parent;
+	uint16_t size;
+	
+	// get the symbol type
+	parent = asm_type_size(type, &size);
+	
+	if (!size) asm_error("not a type");
+}
+
+/*
  * attempts to assemble an instruction assuming a symbol has just been tokenized
  *
  * in = pointer to string
@@ -608,12 +662,22 @@ char asm_instr(char *in)
 		asm_emit("\x00", 1);
 		return 1;
 	} else if (!strcmp(in, "test")) {
-		asm_evaluate(&result);
-		printf("Exp: %d\n", result);
+		if (asm_evaluate(&result))
+			printf("Exp: %d\n", result);
 		return 1;
 	}
 	
 	return 0;
+}
+
+/*
+ * consumes an end of line
+ */
+void asm_eol()
+{
+	char tok = asm_token_read();
+	if (tok != 'n' && tok != -1)
+		asm_error("expected end of line");
 }
 
 /*
@@ -637,15 +701,20 @@ void asm_pass(int pass)
 		tok = asm_token_read();
 		if (tok == -1) break;
 		
+		// command read
+		if (tok == '.') {
+			
+		}
+		
+		// symbol read
 		if (tok == 'a')  {
-			// symbol read
+			
+			// try to get the type of the symbol
 			if (asm_instr(token_buf)) {
-				// its an instruction
-				tok = asm_token_read();
-				if (tok != 'n')
-					asm_error("expected end of line");
-			} else  if (sio_peek() == '=') {
-				// its a symbol definition
+				// it's an instruction
+				asm_eol();
+			} else if (sio_peek() == '=') {
+				// it's a symbol definition
 				asm_token_cache();
 				asm_token_read();
 				
@@ -654,10 +723,20 @@ void asm_pass(int pass)
 				
 				// set the new symbol
 				asm_sym_update(sym_table, token_cache, type, NULL, res);
+				asm_eol();
+			} else if (sio_peek() == ':') {
+				// it's a label
+				
+				// set the new symbol
+				asm_sym_update(sym_table, token_buf, 1, NULL, asm_address);
+				asm_token_read();
+				asm_eol();
 			} else {
 				printf("Symbol: %s\n", token_buf);
 			}
-		} else if (tok == '0') {
+		} 
+		
+		else if (tok == '0') {
 			// numeric read
 			printf("Numeric: %d\n", asm_num_parse(token_buf));
 		}
