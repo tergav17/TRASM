@@ -1,4 +1,6 @@
-.def byte 0,0,0,0
+; test program
+
+;.def byte "a",0,0,0
 
 foobar:
-	test foobar
+	test '\\'

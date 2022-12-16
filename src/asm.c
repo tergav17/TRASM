@@ -172,6 +172,10 @@ char asm_token_read()
 }
 
 /*
+ * consumes a comma, and any line breaks where needed
+ */
+
+/*
  * helper function for number parsing, returns radix type from character
  *
  * r = radix identifier
@@ -321,6 +325,53 @@ void asm_sym_update(struct symbol *table, char *sym, char type, char *parent, ui
 			asm_error("parent types does not exist");
 	}
 	entry->value = value;
+}
+
+/*
+ * converts an escaped char into its value
+ *
+ * c = char to escape
+ * returns escaped value
+ */
+char asm_escape_char(char c)
+{
+	switch (c) {
+		case 'a':
+			return 0x07;
+			
+		case 'b':
+			return 0x08;
+			
+		case 'e':
+			return 0x1B;
+			
+		case 'f':
+			return 0x0C;
+			
+		case 'n':
+			return 0x0A;
+			
+		case 't':
+			return 0x09;
+			
+		case 'v':
+			return 0x0B;
+		
+		case '\\':
+			return 0x5C;
+
+		case '\'':
+			return 0x27;
+			
+		case '\"':
+			return 0x22;
+			
+		case '\?':
+			return 0x3F;
+			
+		default:
+			return 0;
+	}
 }
 
 /*
@@ -529,6 +580,22 @@ char asm_evaluate(uint16_t *result)
 			// it is a numeric
 			op = 0;
 			num = asm_num_parse(token_buf);
+		} else if (tok == '\'') {
+			// it is a char
+			op = 0;
+			
+			// escape character
+			if (sio_peek() == '\\') {
+				sio_next();
+				num = asm_escape_char(sio_next());
+				
+				if (!num) asm_error("unknown escape");
+			} else {
+				num = sio_next();
+			}
+			
+			if (asm_token_read() != '\'')
+				asm_error("expected \'");
 		} else {
 			// it is a token (hopefully mathematic)
 			op = -1;
@@ -633,13 +700,84 @@ struct symbol *asm_type_size(char *type, uint16_t *result)
 }
 
 /*
+ * emits a string found in the char stream
+ */
+void asm_string_emit()
+{
+	char c, state;
+	int radix, length;
+	uint8_t decode, num;
+	
+	// zero state, just accept raw characters
+	state = 0;
+	
+	while (1) {
+		c = sio_next();
+		
+		// we are done
+		if ((c == '"' && !state) || c == -1) break;
+		
+		// just emit the char outright
+		if (!state)
+			asm_emit(&c, 1);
+		
+		if (state == 1) {
+			// escape character
+			decode = asm_escape_char(c);
+			
+			// simple escape
+			if (decode) {
+				asm_emit((char *) &decode, 1);
+				state = 0;
+			} else if (asm_num(c)) {
+				state = 3;
+				radix = 8;
+				length = 3;
+			} else if (c == 'x') {
+				state = 2;
+				radix = 16;
+				length = 2;
+			} else {
+				asm_error("unknown escape");
+			}
+		}
+		
+
+		if (state == 3) {
+			// numeric parsing
+			num = asm_classify_radix(c);
+			
+			if (num == -1) asm_error("unexpected character in numeric");
+			if (num >= radix) asm_error("radix mismatch in numeric");
+			
+			decode = (decode * radix) + num;
+			
+			num = asm_classify_radix(sio_peek());
+			length--;
+			
+			// end the parsing
+			if (length < 1 || num == -1 || num >= radix) {
+				state = 0;
+				asm_emit((char *) &decode, 1);
+			}
+		}
+		
+		// this is to consume the 'x' identifier 
+		if (state == 2) state = 3;
+		
+		// sets the state to 1
+		if (c == '\\') state = 1;
+	}
+}
+
+/*
  * parses a definition out of the token queue, and emits it
  *
  *
  */
 void asm_define(char *type, uint16_t count)
 {
-	symbol sym *parent;
+	struct symbol *parent;
 	uint16_t size;
 	
 	// get the symbol type
