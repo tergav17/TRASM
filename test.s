@@ -1,6 +1,8 @@
 ; test program
 
-;.def byte "a",0,0,0
+foobar = 0x80
+
+.def byte "\"\x10\n"
 
 foobar:
-	test '\\'
+	test foobar
