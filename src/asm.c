@@ -172,16 +172,16 @@ char asm_token_read()
 }
 
 /*
- * consumes a comma, and any line breaks where needed
+ * consumes a char that as the next symbol, and then finds the next symbol ignoring new lines
  */
-void asm_comma()
+void asm_lineable(char c)
 {
 	char tok;
 	
 	tok = asm_token_read();
 	
-	if (tok != ',')
-		asm_error ("expected ,");
+	if (tok != c)
+		asm_error ("unexpected character");
 	
 	while (sio_peek() == '\n')
 		asm_token_read();
@@ -675,14 +675,13 @@ char asm_evaluate(uint16_t *result)
  * s = pointer to byte array
  * n = number of bytes
  */
-void asm_emit(char *s, int n)
+void asm_emit(uint8_t *s, int n)
 {
 	int i;
 	
 	asm_address += n;
 	asm_index += n;
 	
-	printf("record size: %d\n", n);
 	for (i = 0; i < n; i++) {
 		printf("emitting: %02x\n", s[i]);
 	}
@@ -739,7 +738,7 @@ void asm_string_emit()
 		if (c == '"') {
 			if (state != 1) {
 				if (state == 3) {
-					asm_emit((char *) &decode, 1);
+					asm_emit(&decode, 1);
 				}
 				
 				break;
@@ -752,7 +751,7 @@ void asm_string_emit()
 			if (c == '\\') 
 				state = 1;
 			else 
-				asm_emit(&c, 1);
+				asm_emit((uint8_t *) &c, 1);
 			
 			
 		} else if (state == 1) {
@@ -761,7 +760,7 @@ void asm_string_emit()
 			
 			// simple escape
 			if (decode) {
-				asm_emit((char *) &decode, 1);
+				asm_emit(&decode, 1);
 				state = 0;
 			} else if (asm_num(c)) {
 				state = 3;
@@ -791,7 +790,7 @@ void asm_string_emit()
 			// end the parsing
 			if (length < 1 || num == -1 || num >= radix) {
 				state = 0;
-				asm_emit((char *) &decode, 1);
+				asm_emit(&decode, 1);
 			}
 		}
 		
@@ -810,7 +809,66 @@ void asm_string_emit()
  */
 void asm_fill(uint16_t space)
 {
-	while (space--) asm_emit("\x00", 1);
+	while (space--) asm_emit((uint8_t *) "\x00", 1);
+}
+
+
+/*
+ * recursive function to do type-based definitions
+ */
+void asm_define_type(struct symbol *parent, uint16_t size)
+{
+	struct symbol *sym;
+	char tok;
+	uint16_t base;
+	
+	if (!parent)
+		asm_error("type has no parent");
+	
+	base = asm_address;
+	
+	// get the first field
+	asm_lineable('{');
+	
+	sym = parent;
+	while (sym) {
+		if (asm_address > base + sym->value)
+			asm_error("field domain overrun");
+		
+		tok = sio_peek();
+		if (tok == '"') {
+			// emit the string
+			asm_string_emit();
+			
+		} else if (tok == '{') {
+			// emit the type
+			asm_define_type(sym->parent, size);
+			
+		} else {
+			tok = asm_evaluate(&value);
+			
+			// this needs fixed
+			
+			if (!tok) {
+				value = 0;
+			} else if (tok == 1) {
+				// relocation marking if size=2
+			}
+			
+			b = value & 0xFF;
+			asm_emit(&b, 1);
+			if (size > 1) {
+				b = (value & 0xFF00) >> 8;
+				asm_emit(&b, 1);
+			}
+		}
+		
+		if (sym->next) {
+			asm_lineable(',');
+		}
+	}
+	
+	asm_address = base;
 }
 
 /*
@@ -832,8 +890,6 @@ void asm_define(char *type, uint16_t count)
 	
 	if (!size) asm_error("not a type");
 	
-	if (parent) printf("has a parent");
-	
 	// record current address
 	addr = asm_address;
 	
@@ -843,6 +899,10 @@ void asm_define(char *type, uint16_t count)
 		if (tok == '"') {
 			// emit the string
 			asm_string_emit();
+			
+		} else if (tok == '{') {
+			// emit the type
+			asm_define_type(parent, size);
 			
 		} else {
 			tok = asm_evaluate(&value);
@@ -854,25 +914,23 @@ void asm_define(char *type, uint16_t count)
 			}
 			
 			b = value & 0xFF;
-			asm_emit((char *) &b, 1);
+			asm_emit(&b, 1);
 			if (size > 1) {
 				b = (value & 0xFF00) >> 8;
-				asm_emit((char *) &b, 1);
+				asm_emit(&b, 1);
 			}
 		}
 		
 		// see how many elements we emitted, and align to size
-		while (asm_address >= addr + size) {
+		while (asm_address > addr) {
 			addr += size;
 			i++;
 		}
-		if (asm_address > addr) {
-			asm_fill(size - (asm_address - addr));
-			addr += size;
-			i++;
-		}
+		asm_fill(addr - asm_address);
+		
 
-		if (sio_peek() != '\n' && sio_peek() != -1) asm_comma();
+
+		if (sio_peek() != '\n' && sio_peek() != -1) asm_lineable(',');
 	}
 }
 
@@ -887,7 +945,7 @@ char asm_instr(char *in)
 	uint16_t result;
 	
 	if (!strcmp(in, "nop")) {
-		asm_emit("\x00", 1);
+		asm_emit((uint8_t *) "\x00", 1);
 		return 1;
 	} else if (!strcmp(in, "test")) {
 		if (asm_evaluate(&result))
@@ -979,6 +1037,5 @@ void asm_pass(int pass)
 			// numeric read
 			printf("Numeric: %d\n", asm_num_parse(token_buf));
 		}
-		else printf("Read: %c\n", tok);
 	}
 }

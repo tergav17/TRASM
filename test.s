@@ -2,7 +2,4 @@
 
 foobar = 0x80
 
-.def byte "\"\x10\n"
-
-foobar:
-	test foobar
+.def byte "Hello, world\x80\n",0x80,0
