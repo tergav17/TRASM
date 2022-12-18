@@ -571,7 +571,7 @@ char exp_estack_has_lpar(int size)
  */
 char asm_evaluate(uint16_t *result)
 {
-	char tok, op, reloc, fstatic;
+	char tok, op, type, fstatic;
 	uint16_t num;
 	struct symbol *sym;
 	int vindex, eindex;
@@ -580,20 +580,20 @@ char asm_evaluate(uint16_t *result)
 	vindex = eindex = 0;
 	
 	// check for relocation
+	fstatic = 0;
 	if (sio_peek() == '*') {
 		asm_token_read();
-		reloc = 1;
+		type = 1;
 	} else {
-		reloc = 2;
+		type = 2;
 		
 		// check for forced static
 		if (sio_peek() == '&') {
 			asm_token_read();
 			fstatic = 1;
-		} else fstatic = 0;
+		}
 	}
 	
-
 	while (1) {
 		tok = asm_token_read();
 		
@@ -602,10 +602,10 @@ char asm_evaluate(uint16_t *result)
 			op = 0;
 			sym = asm_sym_fetch(sym_table, token_buf);
 			if (sym) {
-				if (sym->type < reloc) reloc = sym->type;
+				if (sym->type < type) type = sym->type;
 				num = sym->value;
 			} else {
-				reloc = 0;
+				type = 0;
 				num = 0;
 			}
 		} else if (tok == '0') {
@@ -686,9 +686,8 @@ char asm_evaluate(uint16_t *result)
 	*result = exp_vstack[0];
 	
 	// if force static, return static
-	if (fstatic && reloc) return 2;
-	
-	return reloc;
+	if (fstatic && type) return 2;
+	return type;
 }
 
 /*
@@ -724,6 +723,10 @@ struct symbol *asm_type_size(char *type, uint16_t *result)
 	// built in types
 	if (!strcmp(type, "byte")) {
 		*result = 1;
+		return NULL;
+	}
+	if (!strcmp(type, "word")) {
+		*result = 2;
 		return NULL;
 	}
 	

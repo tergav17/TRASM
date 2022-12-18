@@ -1,5 +1,5 @@
 ; test program
 
-foobar = 0x80
+foobar = 0x1080
 
-.def byte "Hello, world\x80\n",0x80,0
+.def word foobar
