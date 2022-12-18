@@ -2,4 +2,4 @@
 
 foobar = 0x1080
 
-.def word foobar
+.def byte 0,0x80,foobar,"hello, world",0

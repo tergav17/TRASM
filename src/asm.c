@@ -847,12 +847,12 @@ void asm_fill(uint16_t space)
  */
 void asm_emit_expression(uint16_t size)
 {
-	uint16_t value, addr;
+	uint16_t value, index;
 	char res;
 	uint8_t b;
 	
 	res = asm_evaluate(&value);
-	addr = asm_address;
+	index = asm_index;
 	
 	if (!res) {
 		// if we are on the second pass, error out
@@ -879,7 +879,7 @@ void asm_emit_expression(uint16_t size)
 		
 		if (res == 1) {
 			// relocate!
-			printf("reloc at %04X\n", addr);
+			printf("reloc at %04X\n", index);
 		}
 	}
 }
@@ -904,8 +904,10 @@ void asm_define_type(struct symbol *parent, uint16_t size)
 	
 	sym = parent;
 	while (sym) {
+		// correct to required location
 		if (asm_address > base + sym->value)
 			asm_error("field domain overrun");
+		asm_fill((base + sym->value) - asm_address);
 		
 		tok = sio_peek();
 		if (tok == '"') {
@@ -913,7 +915,7 @@ void asm_define_type(struct symbol *parent, uint16_t size)
 			asm_string_emit();
 			
 		} else if (tok == '{') {
-			// emit the type
+			// emit the type (recursive)
 			asm_define_type(sym->parent, size);
 			
 		} else {
@@ -921,12 +923,18 @@ void asm_define_type(struct symbol *parent, uint16_t size)
 			asm_emit_expression(sym->size);
 		}
 		
-		if (sym->next) {
+		if (sym->next)
 			asm_expect(',');
-		}
+			
+		sym = sym->next;
 	}
 	
-	asm_address = base;
+	// finish corrections
+	if (asm_address > base + size)
+		asm_error("field domain overrun");
+	asm_fill((base + size) - asm_address);
+	
+	asm_expect('}');
 }
 
 /*
