@@ -172,19 +172,29 @@ char asm_token_read()
 }
 
 /*
- * consumes a char that as the next symbol, and then finds the next symbol ignoring new lines
+ * expects a specific symbol
+ * some symbols have special cases for ignoring trailing or leading line breaks
+ *
+ * c = symbol to expect
  */
-void asm_lineable(char c)
+void asm_expect(char c)
 {
 	char tok;
+	
+	if (c == '}') {
+		while (sio_peek() == '\n')
+			asm_token_read();
+	}
 	
 	tok = asm_token_read();
 	
 	if (tok != c)
 		asm_error ("unexpected character");
 	
-	while (sio_peek() == '\n')
-		asm_token_read();
+	if (c == '{' || c == ',') {
+		while (sio_peek() == '\n')
+			asm_token_read();
+	}
 }
 
 /*
@@ -828,7 +838,7 @@ void asm_define_type(struct symbol *parent, uint16_t size)
 	base = asm_address;
 	
 	// get the first field
-	asm_lineable('{');
+	asm_expect('{');
 	
 	sym = parent;
 	while (sym) {
@@ -864,7 +874,7 @@ void asm_define_type(struct symbol *parent, uint16_t size)
 		}
 		
 		if (sym->next) {
-			asm_lineable(',');
+			asm_expect(',');
 		}
 	}
 	
@@ -930,7 +940,7 @@ void asm_define(char *type, uint16_t count)
 		
 
 
-		if (sio_peek() != '\n' && sio_peek() != -1) asm_lineable(',');
+		if (sio_peek() != '\n' && sio_peek() != -1) asm_expect(',');
 	}
 }
 
