@@ -23,8 +23,9 @@ char token_cache[TOKEN_BUF_SIZE];
 uint16_t asm_address;
 uint16_t asm_index;
 
-/* current pass */
+/* current pass / current segment */
 char asm_curr_pass;
+char asm_curr_seg;
 
 /* the expression evaluator requires some larger data structures, lets define them */
 
@@ -570,7 +571,7 @@ char exp_estack_has_lpar(int size)
  */
 char asm_evaluate(uint16_t *result)
 {
-	char tok, op, reloc;
+	char tok, op, reloc, fstatic;
 	uint16_t num;
 	struct symbol *sym;
 	int vindex, eindex;
@@ -582,8 +583,17 @@ char asm_evaluate(uint16_t *result)
 	if (sio_peek() == '*') {
 		asm_token_read();
 		reloc = 1;
-	} else reloc = 2;
+	} else {
+		reloc = 2;
+		
+		// check for forced static
+		if (sio_peek() == '&') {
+			asm_token_read();
+			fstatic = 1;
+		} else fstatic = 0;
+	}
 	
+
 	while (1) {
 		tok = asm_token_read();
 		
@@ -674,6 +684,9 @@ char asm_evaluate(uint16_t *result)
 	if (vindex != 1) asm_error("value stack overpopulation");
 	
 	*result = exp_vstack[0];
+	
+	// if force static, return static
+	if (fstatic && reloc) return 2;
 	
 	return reloc;
 }
@@ -824,6 +837,52 @@ void asm_fill(uint16_t space)
 
 
 /*
+ * helper function to evaluate an expression and emit the results
+ * will handle relocation tracking and pass related stuff
+ *
+ * size = maximum size of space
+ */
+void asm_emit_expression(uint16_t size)
+{
+	uint16_t value, addr;
+	char res;
+	uint8_t b;
+	
+	res = asm_evaluate(&value);
+	addr = asm_address;
+	
+	if (!res) {
+		// if we are on the second pass, error out
+		if (asm_curr_pass)
+			asm_error("undefined symbol");
+		
+		return;
+	}
+	
+	if (!size)
+		asm_error("not a type");
+		
+	b = value & 0xFF;
+	asm_emit(&b, 1);
+	
+	if (size == 1) {
+		// here we output only a byte
+		if (res == 1)
+			asm_error("cannot relocate byte");
+	
+	} else {
+		b = (value & 0xFF00) >> 8;
+		asm_emit(&b, 1);
+		
+		if (res == 1) {
+			// relocate!
+			printf("reloc at %04X\n", addr);
+		}
+	}
+}
+
+
+/*
  * recursive function to do type-based definitions
  */
 void asm_define_type(struct symbol *parent, uint16_t size)
@@ -855,22 +914,8 @@ void asm_define_type(struct symbol *parent, uint16_t size)
 			asm_define_type(sym->parent, size);
 			
 		} else {
-			tok = asm_evaluate(&value);
-			
-			// this needs fixed
-			
-			if (!tok) {
-				value = 0;
-			} else if (tok == 1) {
-				// relocation marking if size=2
-			}
-			
-			b = value & 0xFF;
-			asm_emit(&b, 1);
-			if (size > 1) {
-				b = (value & 0xFF00) >> 8;
-				asm_emit(&b, 1);
-			}
+			// emit the expression
+			asm_emit_expression(sym->size);
 		}
 		
 		if (sym->next) {
@@ -892,8 +937,7 @@ void asm_define(char *type, uint16_t count)
 	char tok;
 	int i;
 	struct symbol *parent;
-	uint16_t size, addr, value;
-	uint8_t b;
+	uint16_t size, addr;
 	
 	// get the symbol type
 	parent = asm_type_size(type, &size);
@@ -915,20 +959,8 @@ void asm_define(char *type, uint16_t count)
 			asm_define_type(parent, size);
 			
 		} else {
-			tok = asm_evaluate(&value);
-			
-			if (!tok) {
-				value = 0;
-			} else if (tok == 1) {
-				// relocation marking if size=2
-			}
-			
-			b = value & 0xFF;
-			asm_emit(&b, 1);
-			if (size > 1) {
-				b = (value & 0xFF00) >> 8;
-				asm_emit(&b, 1);
-			}
+			// emit the expression
+			asm_emit_expression(size);
 		}
 		
 		// see how many elements we emitted, and align to size
