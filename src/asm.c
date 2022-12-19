@@ -17,7 +17,7 @@
 
 /* token buffer */
 char token_buf[TOKEN_BUF_SIZE];
-char token_cache[TOKEN_BUF_SIZE];
+char sym_name[TOKEN_BUF_SIZE];
 
 /* current assembly address and index */
 uint16_t asm_address;
@@ -74,7 +74,7 @@ void asm_reset()
 /*
  * moves the contents of token_buf into token_cache
  */
-void asm_token_cache()
+void asm_token_cache(char *token_cache)
 {
 	int i;
 	
@@ -691,6 +691,42 @@ char asm_evaluate(uint16_t *result)
 }
 
 /*
+ * parses a bracket if there is one to parses, else returns zero
+ * nofail is used to emit an error if the bracket MUST be parsed
+ *
+ * nofail = fail if internal expression fails to parse
+ * returns expression results
+ */
+uint16_t asm_bracket(char nofail)
+{
+	uint16_t result;
+	char res;
+	
+	// if there is no bracket, just return 0
+	if (sio_peek() != '[')
+		return 0;
+	
+	asm_token_read();
+	
+	// evaluate
+	res = asm_evaluate(&result);
+	
+	asm_expect("]");
+	
+	if (!res) {
+		if (nofail)
+			asm_error("undefined expression");
+		
+		return 0;
+	}
+	
+	if (res == 1)
+		asm_error("cannot relocate index");
+	
+	return result;
+}
+
+/*
  * emits a number of bytes into assembly output
  * no bytes emitted on first pass, only indicies updated
  *
@@ -985,6 +1021,15 @@ void asm_define(char *type, uint16_t count)
 
 		if (sio_peek() != '\n' && sio_peek() != -1) asm_expect(',');
 	}
+	
+	// do count handling
+	if (!count)
+		return;
+	
+	if (i > count)
+		asm_error("define domain overrun");
+	
+	asm_fill(size * (count - i));
 }
 
 /*
@@ -1065,14 +1110,14 @@ void asm_pass(int pass)
 				asm_eol();
 			} else if (sio_peek() == '=') {
 				// it's a symbol definition
-				asm_token_cache();
+				asm_token_cache(sym_name);
 				asm_token_read();
 				
 				// evaluate the expression
 				type = asm_evaluate(&res);
 				
 				// set the new symbol
-				asm_sym_update(sym_table, token_cache, type, NULL, res);
+				asm_sym_update(sym_table, sym_name, type, NULL, res);
 				asm_eol();
 			} else if (sio_peek() == ':') {
 				// it's a label

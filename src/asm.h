@@ -10,13 +10,13 @@
 #define HEAP_SIZE (1024 * HEAP_SIZE_KB)
 #define EXP_STACK_DEPTH 16
 
-#define TOKEN_BUF_SIZE 16
+#define TOKEN_BUF_SIZE 9
 
 /* structs */
 
 struct symbol {
 	char type;
-	char name[9];
+	char name[TOKEN_BUF_SIZE];
 	uint16_t size;
 	uint16_t value;
 	struct symbol *parent;
