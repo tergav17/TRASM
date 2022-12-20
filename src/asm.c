@@ -10,7 +10,6 @@
 #include <string.h>
 #include <stdlib.h>
 
-
 /*
  * there are a number of global variables to reduce the amount of data being passed
  */
@@ -69,6 +68,7 @@ void asm_reset()
 	
 	// allocate empty table
 	sym_table = (struct symbol *) asm_alloc(sizeof(struct symbol));
+	sym_table->parent = NULL;
 }
 
 /*
@@ -189,8 +189,9 @@ void asm_expect(char c)
 	
 	tok = asm_token_read();
 	
-	if (tok != c)
+	if (tok != c) {
 		asm_error ("unexpected character");
+	}
 	
 	if (c == '{' || c == ',') {
 		while (sio_peek() == '\n')
@@ -298,7 +299,7 @@ struct symbol *asm_sym_fetch(struct symbol *parent, char *sym)
 		
 		// compare strings
 		equal = 1;
-		for (i = 0; i < TOKEN_BUF_SIZE; i++) {
+		for (i = 0; i < SYMBOL_NAME_SIZE; i++) {
 			if (entry->name[i] != sym[i]) equal = 0;
 			if (!entry->name[i]) break;
 		}
@@ -355,7 +356,7 @@ struct symbol *asm_type_size(char *type, uint16_t *result)
  * parent = parent name
  * value = value of symbol
  */
-void asm_sym_update(struct symbol *table, char *sym, char type, char *parent, uint16_t value)
+struct symbol *asm_sym_update(struct symbol *table, char *sym, char type, struct symbol *parent, uint16_t value)
 {
 	struct symbol *entry;
 	int i;
@@ -363,7 +364,7 @@ void asm_sym_update(struct symbol *table, char *sym, char type, char *parent, ui
 	entry = asm_sym_fetch(table, sym);
 	
 	if (!entry) {
-		entry = sym_table;
+		entry = table;
 		
 		// get the last entry in the table;
 		while (entry->next)
@@ -375,7 +376,7 @@ void asm_sym_update(struct symbol *table, char *sym, char type, char *parent, ui
 		entry->size = 0;
 		
 		// copy name
-		for (i = 0; i < 8 && sym[i] != 0; i++)
+		for (i = 0; i < SYMBOL_NAME_SIZE-1 && sym[i] != 0; i++)
 			entry->name[i] = sym[i];
 		entry->name[i] = 0;
 			
@@ -384,12 +385,11 @@ void asm_sym_update(struct symbol *table, char *sym, char type, char *parent, ui
 	// update the symbol
 	entry->type = type;
 	if (parent != NULL) {
-		entry->parent = asm_type_size(parent, &entry->size);
-		
-		if (!entry->size)
-			asm_error("not a type");
+		entry->parent = parent;
 	}
 	entry->value = value;
+	
+	return entry;
 }
 
 /*
@@ -653,6 +653,7 @@ char asm_evaluate(uint16_t *result)
 			
 			// parse subtypes for symbols
 			while (sio_peek() == '.') {
+				
 				asm_token_read();
 				tok = asm_token_read();
 				
@@ -661,7 +662,7 @@ char asm_evaluate(uint16_t *result)
 				
 				// don't both doing another lookup if sym is null
 				if (sym)
-					sym = asm_sym_fetch(sym->parent, token_buf);
+					sym = asm_sym_fetch(sym, token_buf);
 				
 				if (sym) {
 					if (sym->type < type) type = sym->type;
@@ -737,7 +738,7 @@ char asm_evaluate(uint16_t *result)
 		
 		// check for ending conditions
 		tok = sio_peek();
-		if (tok == ',' || tok == '\n' || tok == ']' || tok == -1) break;
+		if (tok == ',' || tok == '\n' || tok == ']' || tok == '}' || tok == -1) break;
 		if (tok == ')' && !exp_estack_has_lpar(eindex)) break;
 			
 	}
@@ -967,9 +968,10 @@ void asm_define_type(struct symbol *parent, uint16_t size)
 	// get the first field
 	asm_expect('{');
 	
-	sym = parent;
+	sym = parent->next;
 	while (sym) {
 		// correct to required location
+		printf("sym: %s addr: %d base: %d, offset: %d\n", sym->name, asm_address, base, sym->value);
 		if (asm_address > base + sym->value)
 			asm_error("field domain overrun");
 		asm_fill((base + sym->value) - asm_address);
@@ -988,8 +990,11 @@ void asm_define_type(struct symbol *parent, uint16_t size)
 			asm_emit_expression(sym->size);
 		}
 		
-		if (sym->next)
+
+		if (sym->next) {
+			printf("next argument: %s\n", sym->next->name);
 			asm_expect(',');
+		}
 			
 		sym = sym->next;
 	}
@@ -1047,7 +1052,6 @@ void asm_define(char *type, uint16_t count)
 		asm_fill(addr - asm_address);
 		
 
-
 		if (sio_peek() != '\n' && sio_peek() != -1) asm_expect(',');
 	}
 	
@@ -1068,7 +1072,7 @@ void asm_type(char *name)
 {
 	char tok;
 	struct symbol *type, *sym;
-	uint16_t size;
+	uint16_t base, size, count;
 	
 	asm_expect('{');
 	
@@ -1083,14 +1087,42 @@ void asm_type(char *name)
 	
 	type = asm_sym_update(sym_table, name, 2, NULL, 0);
 	
+	base = 0;
 	while (1) {
+		// read type
 		tok = asm_token_read();
 		
 		if (tok != 'a')
 			asm_error("expected symbol");
 		
 		sym = asm_type_size(token_buf, &size);
+		
+		if (!size)
+			asm_error("not a type");
+		
+		count = asm_bracket(1);
+		// there can be no zero counts
+		if (!count) count = 1;
+		
+		// read name
+		tok = asm_token_read();
+		
+		if (tok != 'a')
+			asm_error("expected symbol");
+		
+		sym = asm_sym_update(type, token_buf, 2, sym, base);
+		sym->size = size;
+		
+		printf("adding %s at base %d to %s\n", token_buf, base, type->name);
+		
+		base += size * count;
+		
+		if (sio_peek() == ',')
+			asm_expect(',');
+		else
+			break;
 	}
+	type->size = base;
 	
 	asm_expect('}');
 }
@@ -1160,7 +1192,7 @@ void asm_pass(int pass)
 				tok = asm_token_read();
 				if (tok == 'a') {
 					asm_token_cache(sym_name);
-					result = asm_bracket(0);
+					result = asm_bracket(1);
 					asm_define(sym_name, result);
 				} else
 					asm_error("expected symbol");
