@@ -278,6 +278,7 @@ uint16_t asm_num_parse(char *in)
 /*
  * fetches the symbol
  *
+ * parent = parent structure to search
  * sym = pointer to symbol name
  * returns pointer to found symbol, or null
  */
@@ -287,6 +288,9 @@ struct symbol *asm_sym_fetch(struct symbol *parent, char *sym)
 	int i;
 	char equal;
 	
+	if (!parent)
+		return NULL;
+	
 	// search for the symbol
 	entry = parent->next;
 	
@@ -294,8 +298,10 @@ struct symbol *asm_sym_fetch(struct symbol *parent, char *sym)
 		
 		// compare strings
 		equal = 1;
-		for (i = 0; i < 9 && entry->name[i] != 0; i++)
+		for (i = 0; i < TOKEN_BUF_SIZE; i++) {
 			if (entry->name[i] != sym[i]) equal = 0;
+			if (!entry->name[i]) break;
+		}
 		
 		if (equal) return entry;
 		
@@ -307,8 +313,43 @@ struct symbol *asm_sym_fetch(struct symbol *parent, char *sym)
 }
 
 /*
+ * grabs the size of a type, and returns its parent symbol chain
+ *
+ * type = name of type
+ * result = size of symbol, 0 if does not exist
+ * returns parent symbol chain
+ */
+struct symbol *asm_type_size(char *type, uint16_t *result)
+{
+	struct symbol *sym;
+	
+	// built in types
+	if (!strcmp(type, "byte")) {
+		*result = 1;
+		return NULL;
+	}
+	if (!strcmp(type, "word")) {
+		*result = 2;
+		return NULL;
+	}
+	
+	// else, look in the symbol table
+	sym = asm_sym_fetch(sym_table, type);
+	
+	if (sym) {
+		*result = sym->size;
+		return sym;
+	}
+	
+	// can't find
+	*result = 0;
+	return NULL;
+}
+
+/*
  * defines or redefines a symbol
  *
+ * table = table to add to
  * sym = symbol name
  * type = symbol type (0 = undefined, 1 = relocatable, 2 = static)
  * parent = parent name
@@ -343,9 +384,10 @@ void asm_sym_update(struct symbol *table, char *sym, char type, char *parent, ui
 	// update the symbol
 	entry->type = type;
 	if (parent != NULL) {
-		entry->parent = asm_sym_fetch(sym_table, parent);
-		if (entry->parent == NULL)
-			asm_error("parent types does not exist");
+		entry->parent = asm_type_size(parent, &entry->size);
+		
+		if (!entry->size)
+			asm_error("not a type");
 	}
 	entry->value = value;
 }
@@ -608,6 +650,27 @@ char asm_evaluate(uint16_t *result)
 				type = 0;
 				num = 0;
 			}
+			
+			// parse subtypes for symbols
+			while (sio_peek() == '.') {
+				asm_token_read();
+				tok = asm_token_read();
+				
+				if (tok != 'a')
+					asm_error("unexpected token");
+				
+				// don't both doing another lookup if sym is null
+				if (sym)
+					sym = asm_sym_fetch(sym->parent, token_buf);
+				
+				if (sym) {
+					if (sym->type < type) type = sym->type;
+					num += sym->value;
+				} else {
+					type = 0;
+					num = 0;
+				}
+			}
 		} else if (tok == '0') {
 			// it is a numeric
 			op = 0;
@@ -674,7 +737,7 @@ char asm_evaluate(uint16_t *result)
 		
 		// check for ending conditions
 		tok = sio_peek();
-		if (tok == ',' || tok == '\n' || tok == -1) break;
+		if (tok == ',' || tok == '\n' || tok == ']' || tok == -1) break;
 		if (tok == ')' && !exp_estack_has_lpar(eindex)) break;
 			
 	}
@@ -711,7 +774,7 @@ uint16_t asm_bracket(char nofail)
 	// evaluate
 	res = asm_evaluate(&result);
 	
-	asm_expect("]");
+	asm_expect(']');
 	
 	if (!res) {
 		if (nofail)
@@ -743,40 +806,6 @@ void asm_emit(uint8_t *s, int n)
 	for (i = 0; i < n; i++) {
 		printf("emitting: %02x\n", s[i]);
 	}
-}
-
-/*
- * grabs the size of a type, and returns its parent symbol chain
- *
- * type = name of type
- * result = size of symbol, 0 if does not exist
- * returns parent symbol chain
- */
-struct symbol *asm_type_size(char *type, uint16_t *result)
-{
-	struct symbol *sym;
-	
-	// built in types
-	if (!strcmp(type, "byte")) {
-		*result = 1;
-		return NULL;
-	}
-	if (!strcmp(type, "word")) {
-		*result = 2;
-		return NULL;
-	}
-	
-	// else, look in the symbol table
-	sym = asm_sym_fetch(sym_table, type);
-	
-	if (sym) {
-		*result = sym->size;
-		return sym;
-	}
-	
-	// can't find
-	*result = 0;
-	return NULL;
 }
 
 /*
@@ -895,7 +924,7 @@ void asm_emit_expression(uint16_t size)
 		if (asm_curr_pass)
 			asm_error("undefined symbol");
 		
-		return;
+		value = 0;
 	}
 	
 	if (!size)
@@ -1033,6 +1062,40 @@ void asm_define(char *type, uint16_t count)
 }
 
 /*
+ * defines a new type structure
+ */
+void asm_type(char *name)
+{
+	char tok;
+	struct symbol *type, *sym;
+	uint16_t size;
+	
+	asm_expect('{');
+	
+	if (asm_curr_pass) {
+		while (sio_peek() != '}' && sio_peek() != -1)
+			asm_token_read();
+		
+		asm_expect('}');
+	}
+	if (asm_sym_fetch(sym_table, name))
+		asm_error("type already defined");
+	
+	type = asm_sym_update(sym_table, name, 2, NULL, 0);
+	
+	while (1) {
+		tok = asm_token_read();
+		
+		if (tok != 'a')
+			asm_error("expected symbol");
+		
+		sym = asm_type_size(token_buf, &size);
+	}
+	
+	asm_expect('}');
+}
+
+/*
  * attempts to assemble an instruction assuming a symbol has just been tokenized
  *
  * in = pointer to string
@@ -1072,7 +1135,7 @@ void asm_eol()
 void asm_pass(int pass)
 {
 	char tok, type;
-	uint16_t res;
+	uint16_t result;
 
 	asm_curr_pass = pass;
 
@@ -1092,12 +1155,25 @@ void asm_pass(int pass)
 			if (tok != 'a')
 				asm_error("expected directive");
 			
+			// define directive
 			if (!strcmp(token_buf, "def")) {
 				tok = asm_token_read();
-				if (tok == 'a')
-					asm_define(token_buf, 0);
-				else
-					asm_error("invalid type");
+				if (tok == 'a') {
+					asm_token_cache(sym_name);
+					result = asm_bracket(0);
+					asm_define(sym_name, result);
+				} else
+					asm_error("expected symbol");
+			}
+			
+			// type directive
+			else if (!strcmp(token_buf, "type")) {
+				tok = asm_token_read();
+				if (tok == 'a') {
+					asm_token_cache(sym_name);
+					asm_type(sym_name);
+				} else
+					asm_error("expected symbol");
 			}
 		}
 		
@@ -1114,10 +1190,10 @@ void asm_pass(int pass)
 				asm_token_read();
 				
 				// evaluate the expression
-				type = asm_evaluate(&res);
+				type = asm_evaluate(&result);
 				
 				// set the new symbol
-				asm_sym_update(sym_table, sym_name, type, NULL, res);
+				asm_sym_update(sym_table, sym_name, type, NULL, result);
 				asm_eol();
 			} else if (sio_peek() == ':') {
 				// it's a label

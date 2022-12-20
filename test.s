@@ -1,5 +1,9 @@
 ; test program
 
-foobar = 0x1080
+.type foobar {
+	byte a,
+	word b,
+	byte c
+}
 
-.def byte 0,0x80,foobar,"hello, world",0
+.def byte foobar.a, foobar.b, foobar.c
