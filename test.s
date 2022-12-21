@@ -7,21 +7,16 @@
 }
 
 .type foobar2 {
-	foobar foo,
-	byte bar
+	byte bar,
+	foobar foo
+	
 }
 
-.def word a, b, c
+bruh = 0x1069
 
-.def foobar {
-	0, 1, 2
+.def foobar2 {
+	0b1100,
+	{1, 2, 3}
 }
 
-;.def foobar2 {
-;	{
-;		0x12,
-;		0x3456, 
-;		0x78
-;	},
-;	0
-;}
+test	foobar2.foo.c

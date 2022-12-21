@@ -283,17 +283,17 @@ uint16_t asm_num_parse(char *in)
  * sym = pointer to symbol name
  * returns pointer to found symbol, or null
  */
-struct symbol *asm_sym_fetch(struct symbol *parent, char *sym)
+struct symbol *asm_sym_fetch(struct symbol *table, char *sym)
 {
 	struct symbol *entry;
 	int i;
 	char equal;
 	
-	if (!parent)
+	if (!table)
 		return NULL;
 	
 	// search for the symbol
-	entry = parent->next;
+	entry = table->parent;
 	
 	while (entry) {
 		
@@ -364,14 +364,21 @@ struct symbol *asm_sym_update(struct symbol *table, char *sym, char type, struct
 	entry = asm_sym_fetch(table, sym);
 	
 	if (!entry) {
-		entry = table;
-		
-		// get the last entry in the table;
-		while (entry->next)
+		if (table->parent) {
+			entry = table->parent;
+			
+			// get the last entry in the table;
+			while (entry->next)
+				entry = entry->next;
+			
+			entry->next = (struct symbol *) asm_alloc(sizeof(struct symbol));
 			entry = entry->next;
+		} else {
+			table->parent = (struct symbol *) asm_alloc(sizeof(struct symbol));
+			entry = table->parent;
+		}
 		
-		entry->next = (struct symbol *) asm_alloc(sizeof(struct symbol));
-		entry = entry->next;
+		entry->next = NULL;
 		entry->parent = NULL;
 		entry->size = 0;
 		
@@ -667,6 +674,7 @@ char asm_evaluate(uint16_t *result)
 				if (sym) {
 					if (sym->type < type) type = sym->type;
 					num += sym->value;
+					sym = sym->parent;
 				} else {
 					type = 0;
 					num = 0;
@@ -954,24 +962,24 @@ void asm_emit_expression(uint16_t size)
 /*
  * recursive function to do type-based definitions
  */
-void asm_define_type(struct symbol *parent, uint16_t size)
+void asm_define_type(struct symbol *type)
 {
 	struct symbol *sym;
 	char tok;
-	uint16_t base;
+	uint16_t base, size;
 	
-	if (!parent)
-		asm_error("type has no parent");
+	if (!type || !type->size)
+		asm_error("not a type");
 	
+	size = type->size;
 	base = asm_address;
 	
 	// get the first field
 	asm_expect('{');
-	
-	sym = parent->next;
+
+	sym = type->parent;
 	while (sym) {
 		// correct to required location
-		printf("sym: %s addr: %d base: %d, offset: %d\n", sym->name, asm_address, base, sym->value);
 		if (asm_address > base + sym->value)
 			asm_error("field domain overrun");
 		asm_fill((base + sym->value) - asm_address);
@@ -983,7 +991,7 @@ void asm_define_type(struct symbol *parent, uint16_t size)
 			
 		} else if (tok == '{') {
 			// emit the type (recursive)
-			asm_define_type(sym->parent, size);
+			asm_define_type(sym->parent);
 			
 		} else {
 			// emit the expression
@@ -992,7 +1000,6 @@ void asm_define_type(struct symbol *parent, uint16_t size)
 		
 
 		if (sym->next) {
-			printf("next argument: %s\n", sym->next->name);
 			asm_expect(',');
 		}
 			
@@ -1037,7 +1044,7 @@ void asm_define(char *type, uint16_t count)
 			
 		} else if (tok == '{') {
 			// emit the type
-			asm_define_type(parent, size);
+			asm_define_type(parent);
 			
 		} else {
 			// emit the expression
@@ -1112,9 +1119,7 @@ void asm_type(char *name)
 		
 		sym = asm_sym_update(type, token_buf, 2, sym, base);
 		sym->size = size;
-		
-		printf("adding %s at base %d to %s\n", token_buf, base, type->name);
-		
+
 		base += size * count;
 		
 		if (sio_peek() == ',')
