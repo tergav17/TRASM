@@ -392,7 +392,7 @@ struct symbol *asm_sym_update(struct symbol *table, char *sym, char type, struct
 	// update the symbol
 	entry->type = type;
 	if (parent != NULL) {
-		entry->parent = parent;
+		entry->parent = parent->parent;
 	}
 	entry->value = value;
 	
@@ -674,7 +674,7 @@ char asm_evaluate(uint16_t *result)
 				if (sym) {
 					if (sym->type < type) type = sym->type;
 					num += sym->value;
-					sym = sym->parent;
+					// sym = sym->parent;
 				} else {
 					type = 0;
 					num = 0;
@@ -1172,7 +1172,8 @@ void asm_eol()
 void asm_pass(int pass)
 {
 	char tok, type;
-	uint16_t result;
+	uint16_t result, size;
+	struct symbol *sym;
 
 	asm_curr_pass = pass;
 
@@ -1185,7 +1186,7 @@ void asm_pass(int pass)
 		tok = asm_token_read();
 		if (tok == -1) break;
 		
-		// command read
+		// generative command read
 		if (tok == '.') {
 			tok = asm_token_read();
 			
@@ -1195,12 +1196,32 @@ void asm_pass(int pass)
 			// define directive
 			if (!strcmp(token_buf, "def")) {
 				tok = asm_token_read();
-				if (tok == 'a') {
-					asm_token_cache(sym_name);
-					result = asm_bracket(1);
-					asm_define(sym_name, result);
-				} else
+				if (tok != 'a') 
 					asm_error("expected symbol");
+				asm_token_cache(sym_name);
+				result = asm_bracket(1);
+				asm_define(sym_name, result);
+			}
+			
+			// label define directive
+			else if (!strcmp(token_buf, "defl")) {
+				tok = asm_token_read();
+				if (tok != 'a') 
+					asm_error("expected symbol");
+				
+				asm_token_cache(sym_name);
+				result = asm_bracket(1);
+				tok = asm_token_read();
+				if (tok != 'a') 
+					asm_error("expected symbol");
+				
+				sym = asm_type_size(sym_name, &size);
+				if (!size)
+					asm_error("not a type");
+				
+				sym = asm_sym_update(sym_table, token_buf, 1, sym, asm_address);
+				sym->size = size;
+				asm_define(sym_name, result);
 			}
 			
 			// type directive

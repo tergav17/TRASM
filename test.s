@@ -12,11 +12,10 @@
 	
 }
 
-bruh = 0x1069
+.def byte 0
 
-.def foobar2 {
-	0b1100,
-	{1, 2, 3}
+.defl foobar bazinga {
+	0x69, 0x420, 0b1
 }
 
-test	foobar2.foo.c
+	test foobar2.foo.b
