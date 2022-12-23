@@ -22,9 +22,12 @@ char sym_name[TOKEN_BUF_SIZE];
 uint16_t asm_address;
 uint16_t asm_index;
 
-/* current pass / current segment */
+/* current pass */
 char asm_curr_pass;
+
+/* current and designated segment */
 char asm_curr_seg;
+char asm_desn_seg;
 
 /* the expression evaluator requires some larger data structures, lets define them */
 
@@ -1070,6 +1073,7 @@ void asm_define(char *type, uint16_t count)
 		asm_error("define domain overrun");
 	
 	asm_fill(size * (count - i));
+	asm_eol();
 }
 
 /*
@@ -1130,6 +1134,7 @@ void asm_type(char *name)
 	type->size = base;
 	
 	asm_expect('}');
+	asm_eol();
 }
 
 /*
@@ -1159,9 +1164,23 @@ char asm_instr(char *in)
  */
 void asm_eol()
 {
-	char tok = asm_token_read();
+	char tok;
+	
+	tok = asm_token_read();
 	if (tok != 'n' && tok != -1)
 		asm_error("expected end of line");
+}
+
+/*
+ * skips to and consumes an end of line
+ */
+void asm_skip()
+{
+	char tok;
+	
+	do {
+		tok = asm_token_raed();
+	} while (tok != 'n' && tok != -1);
 }
 
 /*
@@ -1180,18 +1199,29 @@ void asm_pass(int pass)
 	// assembler start at 0;
 	asm_address = asm_index = 0;
 	
+	// reset the segments too
+	asm_curr_seg = asm_desn_seg = 0;
+	
 	// general line input stuff
 	while (1) {
 		// Read the next 
 		tok = asm_token_read();
 		if (tok == -1) break;
 		
-		// generative command read
+		// command read
 		if (tok == '.') {
 			tok = asm_token_read();
 			
 			if (tok != 'a')
 				asm_error("expected directive");
+			
+			if (!strcmp(token_buf, "text")) {
+				asm_desn_seg = 0;
+			} else if (!strcmp(token_buf, "data")) {
+				asm_desn_seg = 1;
+			} else if (!strcmp(token_buf, "bss")) {
+				asm_desn_seg = 2;
+			}
 			
 			// define directive
 			if (!strcmp(token_buf, "def")) {
@@ -1201,6 +1231,7 @@ void asm_pass(int pass)
 				asm_token_cache(sym_name);
 				result = asm_bracket(1);
 				asm_define(sym_name, result);
+
 			}
 			
 			// label define directive
@@ -1261,13 +1292,15 @@ void asm_pass(int pass)
 				asm_token_read();
 				asm_eol();
 			} else {
-				printf("Symbol: %s\n", token_buf);
+				asm_error("unexpected symbol");
 			}
 		} 
 		
 		else if (tok == '0') {
 			// numeric read
 			printf("Numeric: %d\n", asm_num_parse(token_buf));
+		} else if (tok != 'n')
+			
 		}
 	}
 }

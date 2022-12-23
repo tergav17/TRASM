@@ -1,21 +1,26 @@
 ; test program
 
+
+.type word_t {
+	byte low,
+	byte high
+}
+
 .type foobar {
 	byte a,
-	word b,
+	word_t b,
 	byte c
 }
 
-.type foobar2 {
-	byte bar,
-	foobar foo
-	
-}
+data_v =	0x69
+text_v = 	0x42
 
-.def byte 0
+; text_v should emit, then data_v
 
-.defl foobar bazinga {
-	0x69, 0x420, 0b1
-}
+.data
 
-	test foobar2.foo.b
+.def byte	data_v
+
+.text
+
+.def byte	text_v
