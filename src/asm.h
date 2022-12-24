@@ -16,7 +16,7 @@
 /* structs */
 
 struct symbol {
-	char type;
+	uint8_t type;
 	char name[SYMBOL_NAME_SIZE];
 	uint16_t size;
 	uint16_t value;

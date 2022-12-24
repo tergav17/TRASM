@@ -19,7 +19,7 @@ text_v = 	0x42
 
 .data
 
-.def byte	data_v
+.def byte	"Hello :", data_v, 0
 
 .text
 

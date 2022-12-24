@@ -22,6 +22,11 @@ char sym_name[TOKEN_BUF_SIZE];
 uint16_t asm_address;
 uint16_t asm_index;
 
+/* segment tops */
+uint16_t text_top;
+uint16_t data_top;
+uint16_t bss_top;
+
 /* current pass */
 char asm_curr_pass;
 
@@ -200,6 +205,30 @@ void asm_expect(char c)
 		while (sio_peek() == '\n')
 			asm_token_read();
 	}
+}
+
+/*
+ * consumes an end of line
+ */
+void asm_eol()
+{
+	char tok;
+	
+	tok = asm_token_read();
+	if (tok != 'n' && tok != -1)
+		asm_error("expected end of line");
+}
+
+/*
+ * skips to and consumes an end of line
+ */
+void asm_skip()
+{
+	char tok;
+	
+	do {
+		tok = asm_token_read();
+	} while (tok != 'n' && tok != -1);
 }
 
 /*
@@ -812,12 +841,12 @@ void asm_emit(uint8_t *s, int n)
 {
 	int i;
 	
+	for (i = 0; i < n; i++) {
+		printf("%04X : %02X\n", asm_address, s[i]);
+	}
+	
 	asm_address += n;
 	asm_index += n;
-	
-	for (i = 0; i < n; i++) {
-		printf("emitting: %02x\n", s[i]);
-	}
 }
 
 /*
@@ -1160,27 +1189,45 @@ char asm_instr(char *in)
 }
 
 /*
- * consumes an end of line
+ * changes segments for first pass segment top tracking
+ *
+ * next = next segment
  */
-void asm_eol()
+void asm_change_seg(char next)
 {
-	char tok;
+	switch (asm_desn_seg) {
+		case 0:
+			text_top = asm_address;
+			break;
+			
+		case 1:
+			data_top = asm_address;
+			break;
+			
+		case 2:
+			bss_top = asm_address;
+			break;
+			
+		default:
+			break;
+	}
 	
-	tok = asm_token_read();
-	if (tok != 'n' && tok != -1)
-		asm_error("expected end of line");
-}
-
-/*
- * skips to and consumes an end of line
- */
-void asm_skip()
-{
-	char tok;
-	
-	do {
-		tok = asm_token_raed();
-	} while (tok != 'n' && tok != -1);
+	switch (next) {
+		case 0:
+			asm_address = text_top;
+			break;
+			
+		case 1:
+			asm_address = data_top;
+			break;
+			
+		case 2:
+			asm_address= bss_top ;
+			break;
+			
+		default:
+			break;
+	}
 }
 
 /*
@@ -1190,7 +1237,7 @@ void asm_skip()
  */
 void asm_pass(int pass)
 {
-	char tok, type;
+	char tok, type, next;
 	uint16_t result, size;
 	struct symbol *sym;
 
@@ -1201,6 +1248,7 @@ void asm_pass(int pass)
 	
 	// reset the segments too
 	asm_curr_seg = asm_desn_seg = 0;
+	text_top = data_top = bss_top = 0;
 	
 	// general line input stuff
 	while (1) {
@@ -1215,12 +1263,21 @@ void asm_pass(int pass)
 			if (tok != 'a')
 				asm_error("expected directive");
 			
+			next = -1;
 			if (!strcmp(token_buf, "text")) {
-				asm_desn_seg = 0;
+				next = 0;
 			} else if (!strcmp(token_buf, "data")) {
-				asm_desn_seg = 1;
+				next = 1;
 			} else if (!strcmp(token_buf, "bss")) {
-				asm_desn_seg = 2;
+				next = 2;
+			}
+			
+			// change segment
+			if (next != -1) {
+				if (asm_curr_pass == 0) {
+					asm_change_seg(next);
+					asm_desn_seg = next;
+				}
 			}
 			
 			// define directive
@@ -1299,7 +1356,7 @@ void asm_pass(int pass)
 		else if (tok == '0') {
 			// numeric read
 			printf("Numeric: %d\n", asm_num_parse(token_buf));
-		} else if (tok != 'n')
+		} else if (tok != 'n') {
 			
 		}
 	}
