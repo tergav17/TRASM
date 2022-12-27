@@ -384,7 +384,7 @@ struct symbol *asm_type_size(char *type, uint16_t *result)
  *
  * table = table to add to
  * sym = symbol name
- * type = symbol type (0 = undefined, 1 = relocatable, 2 = static)
+ * type = symbol type (0 = undefined, 1 = text, 2 = data, 3 = bss, 4 = absolute)
  * parent = parent name
  * value = value of symbol
  */
@@ -648,11 +648,11 @@ char exp_estack_has_lpar(int size)
  * evaluates an expression that is next in the token queue
  *
  * result = pointer where result will be placed in
- * returns status 0 = unresolved, 1 = relocatable, 2 = static
+ * returns status 0 = unresolved, 1 = text, 2 = data, 3 = bss, 4 = absolute
  */
 char asm_evaluate(uint16_t *result)
 {
-	char tok, op, type, fstatic;
+	char tok, op, type, absol;
 	uint16_t num;
 	struct symbol *sym;
 	int vindex, eindex;
@@ -661,17 +661,17 @@ char asm_evaluate(uint16_t *result)
 	vindex = eindex = 0;
 	
 	// check for relocation
-	fstatic = 0;
+	absol = 0;
 	if (sio_peek() == '*') {
 		asm_token_read();
-		type = 1;
+		type = asm_desn_seg;
 	} else {
-		type = 2;
+		type = 4;
 		
-		// check for forced static
+		// check for forced absolute
 		if (sio_peek() == '&') {
 			asm_token_read();
-			fstatic = 1;
+			absol = 1;
 		}
 	}
 	
@@ -683,7 +683,13 @@ char asm_evaluate(uint16_t *result)
 			op = 0;
 			sym = asm_sym_fetch(sym_table, token_buf);
 			if (sym) {
-				if (sym->type < type) type = sym->type;
+				
+				// segmentation rules
+				if (!sym->type || !type) type = 0;
+				else if (type == 4) type = sym->type;
+				else if (type != 4 && type != sym->type)
+					asm_error("incompatable segments");
+				
 				num = sym->value;
 			} else {
 				type = 0;
@@ -704,7 +710,12 @@ char asm_evaluate(uint16_t *result)
 					sym = asm_sym_fetch(sym, token_buf);
 				
 				if (sym) {
-					if (sym->type < type) type = sym->type;
+					// segmentation rules
+					if (!sym->type || !type) type = 0;
+					else if (type == 4) type = sym->type;
+					else if (type != 4 && type != sym->type)
+						asm_error("incompatable segments");
+					
 					num += sym->value;
 					// sym = sym->parent;
 				} else {
@@ -790,7 +801,7 @@ char asm_evaluate(uint16_t *result)
 	*result = exp_vstack[0];
 	
 	// if force static, return static
-	if (fstatic && type) return 2;
+	if (absol && type) return 4;
 	return type;
 }
 
@@ -824,7 +835,7 @@ uint16_t asm_bracket(char nofail)
 		return 0;
 	}
 	
-	if (res == 1)
+	if (res < 4)
 		asm_error("cannot relocate index");
 	
 	return result;
@@ -976,7 +987,7 @@ void asm_emit_expression(uint16_t size)
 	
 	if (size == 1) {
 		// here we output only a byte
-		if (res == 1)
+		if (res < 4)
 			asm_error("cannot relocate byte");
 	
 	} else {
@@ -1125,7 +1136,7 @@ void asm_type(char *name)
 	if (asm_sym_fetch(sym_table, name))
 		asm_error("type already defined");
 	
-	type = asm_sym_update(sym_table, name, 2, NULL, 0);
+	type = asm_sym_update(sym_table, name, 4, NULL, 0);
 	
 	base = 0;
 	while (1) {
@@ -1150,7 +1161,7 @@ void asm_type(char *name)
 		if (tok != 'a')
 			asm_error("expected symbol");
 		
-		sym = asm_sym_update(type, token_buf, 2, sym, base);
+		sym = asm_sym_update(type, token_buf, 4, sym, base);
 		sym->size = size;
 
 		base += size * count;
@@ -1196,15 +1207,15 @@ char asm_instr(char *in)
 void asm_change_seg(char next)
 {
 	switch (asm_desn_seg) {
-		case 0:
+		case 1:
 			text_top = asm_address;
 			break;
 			
-		case 1:
+		case 2:
 			data_top = asm_address;
 			break;
 			
-		case 2:
+		case 3:
 			bss_top = asm_address;
 			break;
 			
@@ -1213,20 +1224,44 @@ void asm_change_seg(char next)
 	}
 	
 	switch (next) {
-		case 0:
+		case 1:
 			asm_address = text_top;
 			break;
 			
-		case 1:
+		case 2:
 			asm_address = data_top;
 			break;
 			
-		case 2:
-			asm_address= bss_top ;
+		case 3:
+			asm_address = bss_top ;
 			break;
 			
 		default:
 			break;
+	}
+}
+
+/*
+ * iterates through and moves all relocatable symbols into the text segment
+ */
+void asm_fix_seg()
+{
+	struct symbol *sym;
+	
+	sym = sym_table->parent;
+	
+	while (sym) {
+		// data -> text
+		if (sym->type == 2) {
+			sym->type = 1;
+			sym->value += text_top;
+		}
+		
+		// bss -> text
+		if (sym->type == 3) {
+			sym->type = 1;
+			sym->value += text_top + data_top;
+		}
 	}
 }
 
@@ -1247,7 +1282,7 @@ void asm_pass(int pass)
 	asm_address = asm_index = 0;
 	
 	// reset the segments too
-	asm_curr_seg = asm_desn_seg = 0;
+	asm_curr_seg = asm_desn_seg = 1;
 	text_top = data_top = bss_top = 0;
 	
 	// general line input stuff
@@ -1263,13 +1298,13 @@ void asm_pass(int pass)
 			if (tok != 'a')
 				asm_error("expected directive");
 			
-			next = -1;
+			next = 0;
 			if (!strcmp(token_buf, "text")) {
-				next = 0;
-			} else if (!strcmp(token_buf, "data")) {
 				next = 1;
-			} else if (!strcmp(token_buf, "bss")) {
+			} else if (!strcmp(token_buf, "data")) {
 				next = 2;
+			} else if (!strcmp(token_buf, "bss")) {
+				next = 3;
 			}
 			
 			// change segment
@@ -1307,7 +1342,7 @@ void asm_pass(int pass)
 				if (!size)
 					asm_error("not a type");
 				
-				sym = asm_sym_update(sym_table, token_buf, 1, sym, asm_address);
+				sym = asm_sym_update(sym_table, token_buf, asm_desn_seg, sym, asm_address);
 				sym->size = size;
 				asm_define(sym_name, result);
 			}
@@ -1345,7 +1380,7 @@ void asm_pass(int pass)
 				// it's a label
 				
 				// set the new symbol
-				asm_sym_update(sym_table, token_buf, 1, NULL, asm_address);
+				asm_sym_update(sym_table, token_buf, asm_desn_seg, NULL, asm_address);
 				asm_token_read();
 				asm_eol();
 			} else {

@@ -24,10 +24,12 @@ struct symbol {
 	struct symbol *next;
 };
 
-struct value_list {
+struct local {
+	uint8_t type;
+	uint8_t label;
 	uint16_t value;
-	struct value_list *next;
-};
+	struct local *next;
+}
 
 /* interface functions */
 
