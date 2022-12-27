@@ -29,7 +29,7 @@ struct local {
 	uint8_t label;
 	uint16_t value;
 	struct local *next;
-}
+};
 
 /* interface functions */
 

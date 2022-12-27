@@ -6,25 +6,35 @@
 #include "sio.h"
  
 #include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
 
-// global copy of arguments
+//todo: fix bytewise i/o on fout and tmp files
+
+/* global copy of arguments */
 char **sio_argv;
 int sio_argc;
 int sio_argi;
 
-// buffer state stuff
+/* buffer state stuff */
 char sio_buf[512];
 int sio_bufc;
 int sio_bufi;
 
-// current line number
+/* current line number */
 int sio_line;
 
-// currently open file
+/* currently open file */
 FILE *sio_curr;
 
-/* ### helper functions ### */ 
- 
+/* output file */
+FILE *sio_fout;
+
+/* tmp file */
+FILE *sio_ftmp;
+
+/* pid */
+char tname[32];
 
 /*
  * loads up the first block of the next file
@@ -66,8 +76,6 @@ void sio_nextfile()
 	}
 }
 
-/* ### interface functions ### */ 
-
 /*
  * uses passed arguments to open up files in need of assembly
  * arguments starting with '-' are ignored
@@ -80,6 +88,18 @@ void sio_open(int argc, char *argv[])
 	sio_argv = argv;
 	sio_argc = argc;
 
+	sprintf(tname, "/tmp/atm%d", getpid());
+
+	if (!(sio_fout = fopen("a.out", "wb"))) {
+		printf("cannot open a.out\n");
+		exit(1);
+	}
+	
+	if (!(sio_ftmp = fopen(tname, "wb"))) {
+		printf("cannot open tmp file\n");
+		exit(1);
+	}
+
 	sio_curr = NULL;
 	sio_rewind();
 }
@@ -90,7 +110,11 @@ void sio_open(int argc, char *argv[])
 void sio_close()
 {
 	fclose(sio_curr);
+	fclose(sio_fout);
+	fclose(sio_ftmp);
 	sio_curr = NULL;
+	sio_fout = NULL;
+	sio_ftmp = NULL;
 }
 
 /*
@@ -147,4 +171,47 @@ void sio_rewind()
 void sio_status()
 {
 	printf("%s:%d", (sio_argi < sio_argc) ? sio_argv[sio_argi] : sio_argv[sio_argc-1], sio_line);
+}
+
+/*
+ * outputs a byte onto a.out
+ *
+ * out = byte to output
+ */
+void sio_out(char out)
+{
+	fwrite(&out, 1, 1, sio_fout);
+}
+
+/*
+ * writes a byte to the temp file
+ *
+ * tmp = byte to write to tmp
+ */
+void sio_tmp(char tmp)
+{
+	fwrite(&tmp, 1, 1, sio_ftmp);
+}
+
+/*
+ * appends contents of tmp file to output file
+ */
+void sio_append()
+{
+	char c;
+	
+	fclose(sio_ftmp);
+	if (!(sio_ftmp = fopen(tname, "rb"))) {
+		printf("cannot open tmp file\n");
+		exit(1);
+	}
+	
+	while (0 < fread(&c, 1, 1, sio_ftmp))
+		sio_out(c);
+
+	fclose(sio_ftmp);
+	if (!(sio_ftmp = fopen(tname, "wb"))) {
+		printf("cannot open tmp file\n");
+		exit(1);
+	}
 }

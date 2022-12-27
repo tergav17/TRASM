@@ -853,7 +853,10 @@ void asm_emit(uint8_t *s, int n)
 	int i;
 	
 	for (i = 0; i < n; i++) {
-		printf("%04X : %02X\n", asm_address, s[i]);
+		if (asm_curr_pass)
+			sio_out((char) s);
+		else
+			printf("%04X : %02X\n", asm_address, s[i]);
 	}
 	
 	asm_address += n;

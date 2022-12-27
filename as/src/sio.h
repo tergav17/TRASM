@@ -9,4 +9,9 @@ char sio_next();
 void sio_rewind();
 void sio_status();
 
+void sio_out(char out);
+
+void sio_tmp(char tmp);
+void sio_append();
+
 #endif
