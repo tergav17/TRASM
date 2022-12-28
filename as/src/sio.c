@@ -109,12 +109,15 @@ void sio_open(int argc, char *argv[])
  */
 void sio_close()
 {
-	fclose(sio_curr);
+	if (sio_curr) fclose(sio_curr);
 	fclose(sio_fout);
 	fclose(sio_ftmp);
 	sio_curr = NULL;
 	sio_fout = NULL;
 	sio_ftmp = NULL;
+	
+	// delete temp file
+	remove(tname);
 }
 
 /*
@@ -201,6 +204,7 @@ void sio_append()
 	char c;
 	
 	fclose(sio_ftmp);
+	
 	if (!(sio_ftmp = fopen(tname, "rb"))) {
 		printf("cannot open tmp file\n");
 		exit(1);

@@ -18,9 +18,8 @@
 char token_buf[TOKEN_BUF_SIZE];
 char sym_name[TOKEN_BUF_SIZE];
 
-/* current assembly address and index */
+/* current assembly address */
 uint16_t asm_address;
-uint16_t asm_index;
 
 /* segment tops */
 uint16_t text_top;
@@ -28,11 +27,10 @@ uint16_t data_top;
 uint16_t bss_top;
 
 /* current pass */
-char asm_curr_pass;
+char asm_pass;
 
-/* current and designated segment */
-char asm_curr_seg;
-char asm_desn_seg;
+/* current segment */
+char asm_seg;
 
 /* the expression evaluator requires some larger data structures, lets define them */
 
@@ -520,7 +518,7 @@ void exp_estack_pop(int *eindex, int *vindex)
 			
 		case '/':
 			if (b == 0) {
-				if (asm_curr_pass == 0) res = 0;
+				if (asm_pass == 0) res = 0;
 				else asm_error("zero divide");
 			} else
 				res = a / b;
@@ -664,7 +662,7 @@ char asm_evaluate(uint16_t *result)
 	absol = 0;
 	if (sio_peek() == '*') {
 		asm_token_read();
-		type = asm_desn_seg;
+		type = asm_seg;
 	} else {
 		type = 4;
 		
@@ -853,14 +851,30 @@ void asm_emit(uint8_t *s, int n)
 	int i;
 	
 	for (i = 0; i < n; i++) {
-		if (asm_curr_pass)
-			sio_out((char) s);
-		else
+		if (asm_pass) {
+			
+			switch (asm_seg) {
+				case 1:
+					sio_out((char) s[i]);
+					break;
+					
+				case 2:
+					sio_tmp((char) s[i]);
+					break;
+					
+				case 3:
+					if (s[i]) 
+						asm_error("data in bss");
+					break;
+					
+				default:
+					break;
+			}
+		} else
 			printf("%04X : %02X\n", asm_address, s[i]);
 	}
 	
 	asm_address += n;
-	asm_index += n;
 }
 
 /*
@@ -967,16 +981,15 @@ void asm_fill(uint16_t space)
  */
 void asm_emit_expression(uint16_t size)
 {
-	uint16_t value, index;
+	uint16_t value;
 	char res;
 	uint8_t b;
 	
 	res = asm_evaluate(&value);
-	index = asm_index;
 	
 	if (!res) {
 		// if we are on the second pass, error out
-		if (asm_curr_pass)
+		if (asm_pass)
 			asm_error("undefined symbol");
 		
 		value = 0;
@@ -999,7 +1012,7 @@ void asm_emit_expression(uint16_t size)
 		
 		if (res == 1) {
 			// relocate!
-			printf("reloc at %04X\n", index);
+			printf("reloc at %04X\n", asm_address);
 		}
 	}
 }
@@ -1130,11 +1143,12 @@ void asm_type(char *name)
 	
 	asm_expect('{');
 	
-	if (asm_curr_pass) {
+	if (asm_pass) {
 		while (sio_peek() != '}' && sio_peek() != -1)
 			asm_token_read();
 		
 		asm_expect('}');
+		return;
 	}
 	if (asm_sym_fetch(sym_table, name))
 		asm_error("type already defined");
@@ -1209,7 +1223,7 @@ char asm_instr(char *in)
  */
 void asm_change_seg(char next)
 {
-	switch (asm_desn_seg) {
+	switch (asm_seg) {
 		case 1:
 			text_top = asm_address;
 			break;
@@ -1254,6 +1268,9 @@ void asm_fix_seg()
 	sym = sym_table->parent;
 	
 	while (sym) {
+		
+		printf("fixed %s from %d:%d to ", sym->name, sym->type, sym->value);
+		
 		// data -> text
 		if (sym->type == 2) {
 			sym->type = 1;
@@ -1265,34 +1282,60 @@ void asm_fix_seg()
 			sym->type = 1;
 			sym->value += text_top + data_top;
 		}
+		
+		printf("%d:%d\n", sym->type, sym->value);
+		
+		sym = sym->next;
 	}
 }
 
 /*
  * perform assembly functions
- * pass 1 (pass = 0) will generate the symbol table
- * pass 2 (pass = 1) will produce code
  */
-void asm_pass(int pass)
+void asm_assemble()
 {
 	char tok, type, next;
 	uint16_t result, size;
 	struct symbol *sym;
 
-	asm_curr_pass = pass;
+	asm_pass = 0;
 
 	// assembler start at 0;
-	asm_address = asm_index = 0;
+	asm_address = 0;
 	
 	// reset the segments too
-	asm_curr_seg = asm_desn_seg = 1;
+	asm_seg = 1;
 	text_top = data_top = bss_top = 0;
 	
 	// general line input stuff
 	while (1) {
 		// Read the next 
 		tok = asm_token_read();
-		if (tok == -1) break;
+		if (tok == -1) {
+			if (!asm_pass) {
+				// first pass -> second pass
+				printf("first pass done\n");
+				asm_pass++;
+				
+				// fix segment symbols
+				asm_change_seg(1);
+				asm_fix_seg();
+				
+				// reset segment addresses
+				bss_top = data_top;
+				data_top = text_top;
+				asm_address = text_top = 0;
+				asm_seg = 1;
+				
+				sio_rewind();
+				continue;
+			} else {
+				// emit relocation data and symbol stuff
+				printf("second pass done\n");
+				sio_append();
+				break;
+			}
+		}
 		
 		// command read
 		if (tok == '.') {
@@ -1311,11 +1354,9 @@ void asm_pass(int pass)
 			}
 			
 			// change segment
-			if (next != -1) {
-				if (asm_curr_pass == 0) {
-					asm_change_seg(next);
-					asm_desn_seg = next;
-				}
+			if (next != 0) {
+				asm_change_seg(next);
+				asm_seg = next;
 			}
 			
 			// define directive
@@ -1345,7 +1386,7 @@ void asm_pass(int pass)
 				if (!size)
 					asm_error("not a type");
 				
-				sym = asm_sym_update(sym_table, token_buf, asm_desn_seg, sym, asm_address);
+				sym = asm_sym_update(sym_table, token_buf, asm_seg, sym, asm_address);
 				sym->size = size;
 				asm_define(sym_name, result);
 			}
@@ -1383,7 +1424,7 @@ void asm_pass(int pass)
 				// it's a label
 				
 				// set the new symbol
-				asm_sym_update(sym_table, token_buf, asm_desn_seg, NULL, asm_address);
+				asm_sym_update(sym_table, token_buf, asm_seg, NULL, asm_address);
 				asm_token_read();
 				asm_eol();
 			} else {

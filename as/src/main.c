@@ -16,6 +16,9 @@ int main(int argc, char *argv[])
 	//reset assembler heap and data structures
 	asm_reset();
 	
-	// do first pass
-	asm_pass(0);
+	// do the assembly
+	asm_assemble();
+	
+	// all done
+	sio_close();
 }

@@ -34,6 +34,6 @@ struct local {
 /* interface functions */
 
 void asm_reset();
-void asm_pass(int pass);
+void asm_assemble();
 
 #endif
