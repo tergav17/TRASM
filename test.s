@@ -19,8 +19,11 @@ text_v = 	0x42
 
 .data
 
-.def byte	"Hello :", data_v, 0
+
+	.def byte	0
+testl:
+	.def byte	"Hello :", data_v, 0
 
 .text
 
-.def byte	text_v
+.def word	testl

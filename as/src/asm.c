@@ -43,11 +43,27 @@ char exp_estack[EXP_STACK_DEPTH];
 /* heap top */
 int heap_top;
 
-/* head of symbol list */
+/* head of symbol table */
 struct symbol *sym_table;
+
+/* head of local table */
+struct local *loc_table;
 
 /* since this is suppose to work like the assembly version, we will preallocate a heap */
 char heap[HEAP_SIZE];
+
+/*
+ * prints out an error message and exits
+ *
+ * msg = error message
+ */
+void asm_error(char *msg)
+{
+	sio_status();
+	printf(": %s\n", msg);
+	exit(1);
+}
+
 
 /*
  * allocates memory from the heap
@@ -60,6 +76,9 @@ void *asm_alloc(int size)
 	
 	old_pointer = heap_top;
 	heap_top += size;
+	
+	if (heap_top >= HEAP_SIZE)
+		asm_error("out of memory");
 	
 	return (void *) &heap[old_pointer];
 }
@@ -99,18 +118,6 @@ void asm_wskip()
 	comment = 0;
 	while ((sio_peek() <= ' ' || sio_peek() == ';' || comment) && sio_peek() != '\n' && sio_peek() != -1)
 		if (sio_next() == ';') comment = 1;
-}
-
-/*
- * prints out an error message and exits
- *
- * msg = error message
- */
-void asm_error(char *msg)
-{
-	sio_status();
-	printf(": %s\n", msg);
-	exit(1);
 }
 
 /*
@@ -660,17 +667,12 @@ char asm_evaluate(uint16_t *result)
 	
 	// check for relocation
 	absol = 0;
-	if (sio_peek() == '*') {
-		asm_token_read();
-		type = asm_seg;
-	} else {
-		type = 4;
+	type = 4;
 		
-		// check for forced absolute
-		if (sio_peek() == '&') {
-			asm_token_read();
-			absol = 1;
-		}
+	// check for forced absolute
+	if (sio_peek() == '&') {
+		asm_token_read();
+		absol = 1;
 	}
 	
 	while (1) {
@@ -1423,8 +1425,9 @@ void asm_assemble()
 			} else if (sio_peek() == ':') {
 				// it's a label
 				
-				// set the new symbol
-				asm_sym_update(sym_table, token_buf, asm_seg, NULL, asm_address);
+				// set the new symbol (if it is the first pass)
+				if (!asm_pass)
+					asm_sym_update(sym_table, token_buf, asm_seg, NULL, asm_address);
 				asm_token_read();
 				asm_eol();
 			} else {
@@ -1434,9 +1437,15 @@ void asm_assemble()
 		
 		else if (tok == '0') {
 			// numeric read
-			printf("Numeric: %d\n", asm_num_parse(token_buf));
-		} else if (tok != 'n') {
+			result = asm_num_parse(token_buf);
 			
+			if (result > 9)
+				asm_error("local too large");
+			
+			asm_expect(':');
+			asm_eol();
+		} else if (tok != 'n') {
+			asm_error("unexpected symbol");
 		}
 	}
 }
