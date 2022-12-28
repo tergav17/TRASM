@@ -26,4 +26,5 @@ testl:
 
 .text
 
+.def byte	$foobar.b
 .def word	testl

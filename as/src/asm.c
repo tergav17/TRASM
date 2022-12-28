@@ -657,7 +657,7 @@ char exp_estack_has_lpar(int size)
  */
 char asm_evaluate(uint16_t *result)
 {
-	char tok, op, type, absol;
+	char tok, op, type, absol, dosz;
 	uint16_t num;
 	struct symbol *sym;
 	int vindex, eindex;
@@ -678,19 +678,34 @@ char asm_evaluate(uint16_t *result)
 	while (1) {
 		tok = asm_token_read();
 		
-		if (tok == 'a') {
+		if (tok == 'a' || tok == '$') {
 			// it is a symbol
+			
+			// see if we are doing a size or value operation
+			dosz = 0;
+			if (tok == '$') {
+				dosz = 1;
+				tok = asm_token_read();
+				if (tok != 'a')
+					asm_error("unexpected token");
+			}
+			
 			op = 0;
 			sym = asm_sym_fetch(sym_table, token_buf);
 			if (sym) {
 				
-				// segmentation rules
-				if (!sym->type || !type) type = 0;
-				else if (type == 4) type = sym->type;
-				else if (type != 4 && type != sym->type)
-					asm_error("incompatable segments");
-				
-				num = sym->value;
+				if (dosz) {
+					num = sym->size;
+				} else {
+					// segmentation rules
+					if (!sym->type || !type) type = 0;
+					else if (type == 4) type = sym->type;
+					else if (type != 4 && type != sym->type)
+						asm_error("incompatable segments");
+					
+					// get value
+					num = sym->value;
+				}
 			} else {
 				type = 0;
 				num = 0;
@@ -711,13 +726,16 @@ char asm_evaluate(uint16_t *result)
 				
 				if (sym) {
 					// segmentation rules
-					if (!sym->type || !type) type = 0;
-					else if (type == 4) type = sym->type;
-					else if (type != 4 && type != sym->type)
-						asm_error("incompatable segments");
-					
-					num += sym->value;
-					// sym = sym->parent;
+					if (dosz) {
+						num = sym->size;
+					} else {
+						if (!sym->type || !type) type = 0;
+						else if (type == 4) type = sym->type;
+						else if (type != 4 && type != sym->type)
+							asm_error("incompatable segments");
+						
+						num += sym->value;
+					}
 				} else {
 					type = 0;
 					num = 0;
@@ -1000,6 +1018,11 @@ void asm_emit_expression(uint16_t size)
 	if (!size)
 		asm_error("not a type");
 		
+	if (res > 0 && res < 4) {
+		// relocate!
+		printf("reloc at %04X\n", asm_address);
+	}
+		
 	b = value & 0xFF;
 	asm_emit(&b, 1);
 	
@@ -1011,11 +1034,6 @@ void asm_emit_expression(uint16_t size)
 	} else {
 		b = (value & 0xFF00) >> 8;
 		asm_emit(&b, 1);
-		
-		if (res == 1) {
-			// relocate!
-			printf("reloc at %04X\n", asm_address);
-		}
 	}
 }
 
@@ -1429,7 +1447,6 @@ void asm_assemble()
 				if (!asm_pass)
 					asm_sym_update(sym_table, token_buf, asm_seg, NULL, asm_address);
 				asm_token_read();
-				asm_eol();
 			} else {
 				asm_error("unexpected symbol");
 			}
@@ -1443,7 +1460,6 @@ void asm_assemble()
 				asm_error("local too large");
 			
 			asm_expect(':');
-			asm_eol();
 		} else if (tok != 'n') {
 			asm_error("unexpected symbol");
 		}
