@@ -40,17 +40,20 @@ uint16_t exp_vstack[EXP_STACK_DEPTH];
 /* expression stack */
 char exp_estack[EXP_STACK_DEPTH];
 
-/* heap top */
-int heap_top;
-
 /* head of symbol table */
 struct symbol *sym_table;
 
 /* head of local table */
 struct local *loc_table;
 
+/* counts how many locals have been encountered this pass */
+int loc_cnt;
+
 /* since this is suppose to work like the assembly version, we will preallocate a heap */
 char heap[HEAP_SIZE];
+
+/* heap top */
+int heap_top;
 
 /*
  * prints out an error message and exits
@@ -61,6 +64,7 @@ void asm_error(char *msg)
 {
 	sio_status();
 	printf(": %s\n", msg);
+	sio_close();
 	exit(1);
 }
 
@@ -437,6 +441,73 @@ struct symbol *asm_sym_update(struct symbol *table, char *sym, char type, struct
 }
 
 /*
+ * appends a local symbol to the local table
+ *
+ * label = label # (0-9)
+ * type = symbol segment (text, data, or bss)
+ * value = value of symbol
+ */
+void asm_local_add(uint8_t label, uint8_t type, uint16_t value)
+{
+	struct local *new, *curr;
+	
+	// alloc the new local symbol
+	new = (struct local *) asm_alloc(sizeof(struct local));
+	new->label = label;
+	new->type = type;
+	new->value = value;
+	
+	// append to local table
+	if (loc_table) {
+		curr = loc_table;
+		while (curr->next)
+			curr = curr->next;
+		
+		curr->next = new;
+	} else
+		loc_table = new;
+}
+
+/*
+ * fetches a local symbol
+ *
+ * index = how many local indicies have been counted during pass
+ * label = label # (0-9)
+ * dir = direction (0 = backwards, 1 = forwards)
+ */
+char asm_local_fetch(uint16_t *result, int index, uint8_t label, char dir)
+{
+	struct local *curr, *last;
+	
+	curr = loc_table;
+	
+	// iterate through list
+	last = NULL;
+	while (curr) {
+		
+		// label match
+		if (curr->label == label) {
+			if (index) {
+				last = curr;
+			} else break;
+		}
+		
+		if (index) index--;
+		curr = curr->next;
+	}
+	
+	if (dir)
+		last = curr;
+	
+	*result = 0;
+	if (last) {
+		*result = last->value;
+		return last->type;
+	}
+	return 0;
+}
+
+/*
  * converts an escaped char into its value
  *
  * c = char to escape
@@ -657,7 +728,7 @@ char exp_estack_has_lpar(int size)
  */
 char asm_evaluate(uint16_t *result)
 {
-	char tok, op, type, absol, dosz;
+	char tok, op, type, ltype, absol, dosz;
 	uint16_t num;
 	struct symbol *sym;
 	int vindex, eindex;
@@ -700,7 +771,7 @@ char asm_evaluate(uint16_t *result)
 					// segmentation rules
 					if (!sym->type || !type) type = 0;
 					else if (type == 4) type = sym->type;
-					else if (type != 4 && type != sym->type)
+					else if (type != 4 && sym->type != 4)
 						asm_error("incompatable segments");
 					
 					// get value
@@ -731,7 +802,7 @@ char asm_evaluate(uint16_t *result)
 					} else {
 						if (!sym->type || !type) type = 0;
 						else if (type == 4) type = sym->type;
-						else if (type != 4 && type != sym->type)
+						else if (type != 4 && sym->type != 4)
 							asm_error("incompatable segments");
 						
 						num += sym->value;
@@ -742,9 +813,22 @@ char asm_evaluate(uint16_t *result)
 				}
 			}
 		} else if (tok == '0') {
-			// it is a numeric
+			// it is a numeric (maybe)
 			op = 0;
-			num = asm_num_parse(token_buf);
+		
+			if (asm_num(token_buf[0]) && (token_buf[1] == 'f' || token_buf[1] == 'b') && token_buf[2] == 0) {
+				// nope, actually a local label
+				ltype = asm_local_fetch(&num, loc_cnt, asm_char_parse(token_buf[0]), token_buf[1] == 'f');
+				
+				// segmentation rules
+				if (!ltype || !type) type = 0;
+				else if (type == 4) type = ltype;
+				else if (type != 4 && ltype != 4)
+					asm_error("incompatable segments");
+			} else {
+				// its a numeric (for realz)
+				num = asm_num_parse(token_buf);
+			}
 		} else if (tok == '\'') {
 			// it is a char
 			op = 0;
@@ -890,8 +974,7 @@ void asm_emit(uint8_t *s, int n)
 				default:
 					break;
 			}
-		} else
-			printf("%04X : %02X\n", asm_address, s[i]);
+		} // else printf("%04X : %02X\n", asm_address, s[i]);
 	}
 	
 	asm_address += n;
@@ -1018,7 +1101,7 @@ void asm_emit_expression(uint16_t size)
 	if (!size)
 		asm_error("not a type");
 		
-	if (res > 0 && res < 4) {
+	if (res > 0 && res < 4 && asm_pass) {
 		// relocate!
 		printf("reloc at %04X\n", asm_address);
 	}
@@ -1279,11 +1362,12 @@ void asm_change_seg(char next)
 }
 
 /*
- * iterates through and moves all relocatable symbols into the text segment
+ * iterates through and fixes all segments for the second pass
  */
 void asm_fix_seg()
 {
 	struct symbol *sym;
+	struct local *loc;
 	
 	sym = sym_table->parent;
 	
@@ -1293,19 +1377,37 @@ void asm_fix_seg()
 		
 		// data -> text
 		if (sym->type == 2) {
-			sym->type = 1;
 			sym->value += text_top;
 		}
 		
 		// bss -> text
 		if (sym->type == 3) {
-			sym->type = 1;
 			sym->value += text_top + data_top;
 		}
 		
 		printf("%d:%d\n", sym->type, sym->value);
 		
 		sym = sym->next;
+	}
+	
+	loc = loc_table;
+	while (loc) {
+		
+		printf("fixed $%d from %d:%d to ", loc->label, loc->type, loc->value);
+		
+		// data -> text
+		if (loc->type == 2) {
+			loc->value += text_top;
+		}
+		
+		// bss -> text
+		if (loc->type == 3) {
+			loc->value += text_top + data_top;
+		}
+		
+		printf("%d:%d\n", loc->type, loc->value);
+		
+		loc = loc->next;
 	}
 }
 
@@ -1318,6 +1420,7 @@ void asm_assemble()
 	uint16_t result, size;
 	struct symbol *sym;
 
+	// start at pass 1
 	asm_pass = 0;
 
 	// assembler start at 0;
@@ -1327,6 +1430,9 @@ void asm_assemble()
 	asm_seg = 1;
 	text_top = data_top = bss_top = 0;
 	
+	// reset local count
+	loc_cnt = 0;
+	
 	// general line input stuff
 	while (1) {
 		// Read the next 
@@ -1334,8 +1440,9 @@ void asm_assemble()
 		if (tok == -1) {
 			if (!asm_pass) {
 				// first pass -> second pass
-				printf("first pass done\n");
+				printf("first pass done, %d bytes used\n", heap_top);
 				asm_pass++;
+				loc_cnt = 0;
 				
 				// fix segment symbols
 				asm_change_seg(1);
@@ -1351,7 +1458,7 @@ void asm_assemble()
 				continue;
 			} else {
 				// emit relocation data and symbol stuff
-				printf("second pass done\n");
+				printf("second pass done, %d bytes used\n", heap_top);
 				sio_append();
 				break;
 			}
@@ -1460,6 +1567,11 @@ void asm_assemble()
 				asm_error("local too large");
 			
 			asm_expect(':');
+			
+			loc_cnt++;
+			if (!asm_pass)
+				asm_local_add(result, asm_seg, asm_address);
+			
 		} else if (tok != 'n') {
 			asm_error("unexpected symbol");
 		}

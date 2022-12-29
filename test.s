@@ -1,6 +1,5 @@
 ; test program
 
-
 .type word_t {
 	byte low,
 	byte high
@@ -21,10 +20,12 @@ text_v = 	0x42
 
 
 	.def byte	0
-testl:
-	.def byte	"Hello :", data_v, 0
+1:	.def byte	"Hello :", data_v, 0
+	
 
 .text
 
-.def byte	$foobar.b
-.def word	testl
+	.def byte	$foobar.b.low
+	.def word_t	1b,1f
+	
+1:
