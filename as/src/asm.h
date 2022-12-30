@@ -15,6 +15,7 @@
 
 /* structs */
 
+/* Z80 size = 18 bytes */
 struct symbol {
 	uint8_t type;
 	char name[SYMBOL_NAME_SIZE];
@@ -24,12 +25,26 @@ struct symbol {
 	struct symbol *next;
 };
 
+/* Z80 size = 6 bytes */
 struct local {
 	uint8_t type;
 	uint8_t label;
 	uint16_t value;
 	struct local *next;
 };
+
+/* Z80 size = 4 bytes */
+struct reloc {
+	uint16_t address;
+	struct reloc *next;
+}
+
+/* Z80 size = 6 bytes */
+struct extrn {
+	struct symbol *symbol;
+	struct reloc *reloc;
+	struct extrn *next;
+}
 
 /* interface functions */
 

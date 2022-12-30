@@ -55,6 +55,10 @@ char heap[HEAP_SIZE];
 /* heap top */
 int heap_top;
 
+/* telemetry stuff */
+int sym_count;
+int loc_count;
+
 /*
  * prints out an error message and exits
  *
@@ -98,6 +102,9 @@ void asm_reset()
 	// allocate empty table
 	sym_table = (struct symbol *) asm_alloc(sizeof(struct symbol));
 	sym_table->parent = NULL;
+	
+	sym_count = 0;
+	loc_count = 0;
 }
 
 /*
@@ -412,9 +419,11 @@ struct symbol *asm_sym_update(struct symbol *table, char *sym, char type, struct
 			while (entry->next)
 				entry = entry->next;
 			
+			sym_count++;
 			entry->next = (struct symbol *) asm_alloc(sizeof(struct symbol));
 			entry = entry->next;
 		} else {
+			sym_count++;
 			table->parent = (struct symbol *) asm_alloc(sizeof(struct symbol));
 			entry = table->parent;
 		}
@@ -452,6 +461,7 @@ void asm_local_add(uint8_t label, uint8_t type, uint16_t value)
 	struct local *new, *curr;
 	
 	// alloc the new local symbol
+	loc_count++;
 	new = (struct local *) asm_alloc(sizeof(struct local));
 	new->label = label;
 	new->type = type;
@@ -1373,7 +1383,7 @@ void asm_fix_seg()
 	
 	while (sym) {
 		
-		printf("fixed %s from %d:%d to ", sym->name, sym->type, sym->value);
+		// printf("fixed %s from %d:%d to ", sym->name, sym->type, sym->value);
 		
 		// data -> text
 		if (sym->type == 2) {
@@ -1385,7 +1395,7 @@ void asm_fix_seg()
 			sym->value += text_top + data_top;
 		}
 		
-		printf("%d:%d\n", sym->type, sym->value);
+		// printf("%d:%d\n", sym->type, sym->value);
 		
 		sym = sym->next;
 	}
@@ -1393,7 +1403,7 @@ void asm_fix_seg()
 	loc = loc_table;
 	while (loc) {
 		
-		printf("fixed $%d from %d:%d to ", loc->label, loc->type, loc->value);
+		// printf("fixed $%d from %d:%d to ", loc->label, loc->type, loc->value);
 		
 		// data -> text
 		if (loc->type == 2) {
@@ -1405,7 +1415,7 @@ void asm_fix_seg()
 			loc->value += text_top + data_top;
 		}
 		
-		printf("%d:%d\n", loc->type, loc->value);
+		// printf("%d:%d\n", loc->type, loc->value);
 		
 		loc = loc->next;
 	}
@@ -1440,7 +1450,7 @@ void asm_assemble()
 		if (tok == -1) {
 			if (!asm_pass) {
 				// first pass -> second pass
-				printf("first pass done, %d bytes used\n", heap_top);
+				printf("first pass done, est %d bytes used (%d:%d)\n", (18 * sym_count) + (6 * loc_count), sym_count, loc_count);
 				asm_pass++;
 				loc_cnt = 0;
 				
@@ -1458,7 +1468,7 @@ void asm_assemble()
 				continue;
 			} else {
 				// emit relocation data and symbol stuff
-				printf("second pass done, %d bytes used\n", heap_top);
+				printf("second pass done, est %d bytes used (%d:%d)\n", (18 * sym_count) + (6 * loc_count), sym_count, loc_count);
 				sio_append();
 				break;
 			}
