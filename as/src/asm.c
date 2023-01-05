@@ -49,6 +49,9 @@ struct local *loc_table;
 /* counts how many locals have been encountered this pass */
 int loc_cnt;
 
+/* head of global table */
+struct global *glob_table;
+
 /* since this is suppose to work like the assembly version, we will preallocate a heap */
 char heap[HEAP_SIZE];
 
@@ -58,6 +61,7 @@ int heap_top;
 /* telemetry stuff */
 int sym_count;
 int loc_count;
+int glob_count;
 
 /*
  * prints out an error message and exits
@@ -97,7 +101,10 @@ void *asm_alloc(int size)
 void asm_reset()
 {
 	heap_top = 0;
+	
 	sym_table = NULL;
+	loc_table = NULL;
+	glob_table = NULL;
 	
 	// allocate empty table
 	sym_table = (struct symbol *) asm_alloc(sizeof(struct symbol));
@@ -105,6 +112,7 @@ void asm_reset()
 	
 	sym_count = 0;
 	loc_count = 0;
+	glob_count = 0;
 }
 
 /*
@@ -515,6 +523,40 @@ char asm_local_fetch(uint16_t *result, int index, uint8_t label, char dir)
 		return last->type;
 	}
 	return 0;
+}
+
+/*
+ * adds a symbol to the global table
+ *
+ * sym = symbol to add
+ */
+void asm_glob(struct symbol *sym) 
+{
+	struct global *curr, *new;
+	
+	glob_count++;
+	new = (struct global *) asm_alloc(sizeof(struct global));
+	new->symbol = sym;
+	new->next = NULL;
+	
+	curr = NULL;
+	if (glob_table) {
+		curr = glob_table;
+		
+		while (1) {
+			if (curr->symbol == sym)
+				asm_error("symbol already global");
+			
+			if (curr->next) {
+				curr = curr->next;
+			} else {
+				curr->next = new;
+				return;
+			}
+		}
+	} else {
+		glob_table = new;
+	}
 }
 
 /*

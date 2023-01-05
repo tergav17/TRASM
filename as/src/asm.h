@@ -37,14 +37,20 @@ struct local {
 struct reloc {
 	uint16_t address;
 	struct reloc *next;
-}
+};
 
 /* Z80 size = 6 bytes */
 struct extrn {
 	struct symbol *symbol;
 	struct reloc *reloc;
 	struct extrn *next;
-}
+};
+
+/* Z80 size = 4 bytes */
+struct global {
+	struct symbol *symbol;
+	struct global *next;
+};
 
 /* interface functions */
 
