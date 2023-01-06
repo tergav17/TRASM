@@ -1469,6 +1469,7 @@ void asm_fix_seg()
 void asm_assemble()
 {
 	char tok, type, next;
+	int ifdepth, trdepth;
 	uint16_t result, size;
 	struct symbol *sym;
 
@@ -1485,11 +1486,18 @@ void asm_assemble()
 	// reset local count
 	loc_cnt = 0;
 	
+	// reset if and true depth
+	ifdepth = trdepth = 0;
+	
 	// general line input stuff
 	while (1) {
 		// Read the next 
 		tok = asm_token_read();
 		if (tok == -1) {
+			
+			if (ifdepth)
+				asm_error("unpaired .if");
+			
 			if (!asm_pass) {
 				// first pass -> second pass
 				printf("first pass done, est %d bytes used (%d:%d)\n", (18 * sym_count) + (6 * loc_count), sym_count, loc_count);
@@ -1523,6 +1531,44 @@ void asm_assemble()
 			if (tok != 'a')
 				asm_error("expected directive");
 			
+			
+			// if directive
+			if (!strcmp(token_buf, "if")) {
+				ifdepth++;
+				
+				// evaluate the expression
+				type = asm_evaluate(&result);
+				
+				if (type != 4)
+					asm_error("expression must be absolute");
+				
+				if (result)
+					trdepth++;
+				
+				asm_eol();
+				continue;
+			}
+			
+			// endif directive
+			else if (!strcmp(token_buf, "endif")) {
+				if(!ifdepth)
+					asm_error("unpaired .endif");
+				
+				if (ifdepth == trdepth)
+					trdepth--;
+				ifdepth--;
+				
+				asm_eol();
+				continue;
+			}
+			
+			// skip if in an untrue if segment
+			if (ifdepth > trdepth) {
+				asm_skip();
+				continue;
+			}
+		
+			
 			next = 0;
 			if (!strcmp(token_buf, "text")) {
 				next = 1;
@@ -1536,10 +1582,25 @@ void asm_assemble()
 			if (next != 0) {
 				asm_change_seg(next);
 				asm_seg = next;
+				asm_eol();
+				continue;
+			}
+			
+			// globl directive
+			else if (!strcmp(token_buf, "globl")) {
+				tok = asm_token_read();
+				if (tok != 'a') 
+					asm_error("expected symbol");
+				if (asm_pass) {
+					sym = asm_sym_fetch(sym_table, token_buf);
+					if (!sym)
+						asm_error("undefined symbol");
+					asm_glob(sym);
+				}
 			}
 			
 			// define directive
-			if (!strcmp(token_buf, "def")) {
+			else if (!strcmp(token_buf, "def")) {
 				tok = asm_token_read();
 				if (tok != 'a') 
 					asm_error("expected symbol");
@@ -1572,13 +1633,25 @@ void asm_assemble()
 			
 			// type directive
 			else if (!strcmp(token_buf, "type")) {
+				
+
+				
 				tok = asm_token_read();
 				if (tok == 'a') {
 					asm_token_cache(sym_name);
 					asm_type(sym_name);
 				} else
 					asm_error("expected symbol");
-			}
+			} else
+				asm_error("unexpected token");
+			
+			continue;
+		}
+		
+		// skip if in an untrue if segment
+		if (ifdepth > trdepth) {
+			asm_skip();
+			continue;
 		}
 		
 		// symbol read
@@ -1625,7 +1698,7 @@ void asm_assemble()
 				asm_local_add(result, asm_seg, asm_address);
 			
 		} else if (tok != 'n') {
-			asm_error("unexpected symbol");
+			asm_error("unexpected token");
 		}
 	}
 }
