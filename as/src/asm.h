@@ -52,6 +52,11 @@ struct global {
 	struct global *next;
 };
 
+struct tval {
+	uint16_t value;
+	uint8_t type;
+};
+
 /* interface functions */
 
 void asm_reset();

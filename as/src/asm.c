@@ -35,7 +35,7 @@ char asm_seg;
 /* the expression evaluator requires some larger data structures, lets define them */
 
 /* value stack */
-uint16_t exp_vstack[EXP_STACK_DEPTH];
+struct tval exp_vstack[EXP_STACK_DEPTH];
 
 /* expression stack */
 char exp_estack[EXP_STACK_DEPTH];
@@ -408,7 +408,7 @@ struct symbol *asm_type_size(char *type, uint16_t *result)
  *
  * table = table to add to
  * sym = symbol name
- * type = symbol type (0 = undefined, 1 = text, 2 = data, 3 = bss, 4 = absolute)
+ * type = symbol type (0 = undefined, 1 = text, 2 = data, 3 = bss, 4 = absolute, 5+ = external)
  * parent = parent name
  * value = value of symbol
  */
@@ -614,7 +614,8 @@ char asm_escape_char(char c)
  */
 void exp_estack_pop(int *eindex, int *vindex)
 {
-	uint16_t a,b, res;
+	uint16_t a, b, res;
+	uint8_t at, bt, ot;
 	char op;
 	
 	// check if expression stack is empty
@@ -626,8 +627,11 @@ void exp_estack_pop(int *eindex, int *vindex)
 	// attempt to pop out two values from the value stack
 	if (*vindex < 2) asm_error("value stack depletion");
 	
-	b = exp_vstack[--*vindex];
-	a = exp_vstack[--*vindex];
+	// grab values off the stack
+	b = exp_vstack[--*vindex].value;
+	bt = exp_vstack[*vindex].type;
+	a = exp_vstack[--*vindex].value;
+	at = exp_vstack[*vindex].type;
 	
 	switch (op) {
 		case '!':
@@ -686,8 +690,34 @@ void exp_estack_pop(int *eindex, int *vindex)
 			break;
 	}
 	
+	// calculate types
+	if (!at || !bt) {
+		// any operation with an undefined type will also be undefined
+		ot = 0;
+	} else if (at != 4 && bt != 4) {
+		// operations between two non-absolute types are forbidden
+		asm_error("incompatable types");
+	} else if (at == 4 && bt != 4) {
+		// a is absolute, b is not
+		// only addition is allowed here, ot becomes bt
+		if (op != '+')
+			asm_error("invalid type operation");
+		ot = bt;
+	} else if (at != 4 && bt == 4) {
+		// b is absolute, a is not
+		// either addition or subtraction is allowed here, ot becomes at
+		if (op != '+' && op != '-')
+			asm_error("invalid type operation");
+		ot = at;
+	} else {
+		// both are absolute
+		ot = 4;
+	}
+		
+	
 	// push into stack
-	exp_vstack[(*vindex)++] = res;
+	exp_vstack[*vindex].value = res;
+	exp_vstack[(*vindex)++].type = ot;
 }
 
 /*
@@ -708,10 +738,11 @@ void exp_estack_push(int *eindex, char op)
  * vindex = pointer to value index
  * val = value to push
  */
-void exp_vstack_push(int *vindex, uint16_t val)
+void exp_vstack_push(int *vindex, uint8_t type, uint16_t value)
 {
 	if (*vindex >= EXP_STACK_DEPTH) asm_error("value stack overflow");
-	exp_vstack[(*vindex)++] = val;
+	exp_vstack[*vindex].type = type;
+	exp_vstack[(*vindex)++].value = value;
 }
 
 /*
@@ -776,11 +807,11 @@ char exp_estack_has_lpar(int size)
  * evaluates an expression that is next in the token queue
  *
  * result = pointer where result will be placed in
- * returns status 0 = unresolved, 1 = text, 2 = data, 3 = bss, 4 = absolute
+ * returns status 0 = unresolved, 1 = text, 2 = data, 3 = bss, 4 = absolute, 5+ = external types
  */
 char asm_evaluate(uint16_t *result)
 {
-	char tok, op, type, ltype, absol, dosz;
+	char tok, op, type, dosz;
 	uint16_t num;
 	struct symbol *sym;
 	int vindex, eindex;
@@ -788,18 +819,11 @@ char asm_evaluate(uint16_t *result)
 	// reset indicies
 	vindex = eindex = 0;
 	
-	// check for relocation
-	absol = 0;
-	type = 4;
-		
-	// check for forced absolute
-	if (sio_peek() == '&') {
-		asm_token_read();
-		absol = 1;
-	}
-	
 	while (1) {
 		tok = asm_token_read();
+		
+		// default is absolute
+		type = 4;
 		
 		if (tok == 'a' || tok == '$') {
 			// it is a symbol
@@ -818,13 +842,11 @@ char asm_evaluate(uint16_t *result)
 			if (sym) {
 				
 				if (dosz) {
+					// all sizes are absolute
 					num = sym->size;
 				} else {
-					// segmentation rules
-					if (!sym->type || !type) type = 0;
-					else if (type == 4) type = sym->type;
-					else if (type != 4 && sym->type != 4)
-						asm_error("incompatable segments");
+					// get type
+					type = sym->type;
 					
 					// get value
 					num = sym->value;
@@ -848,15 +870,9 @@ char asm_evaluate(uint16_t *result)
 					sym = asm_sym_fetch(sym, token_buf);
 				
 				if (sym) {
-					// segmentation rules
 					if (dosz) {
 						num = sym->size;
 					} else {
-						if (!sym->type || !type) type = 0;
-						else if (type == 4) type = sym->type;
-						else if (type != 4 && sym->type != 4)
-							asm_error("incompatable segments");
-						
 						num += sym->value;
 					}
 				} else {
@@ -870,13 +886,7 @@ char asm_evaluate(uint16_t *result)
 		
 			if (asm_num(token_buf[0]) && (token_buf[1] == 'f' || token_buf[1] == 'b') && token_buf[2] == 0) {
 				// nope, actually a local label
-				ltype = asm_local_fetch(&num, loc_cnt, asm_char_parse(token_buf[0]), token_buf[1] == 'f');
-				
-				// segmentation rules
-				if (!ltype || !type) type = 0;
-				else if (type == 4) type = ltype;
-				else if (type != 4 && ltype != 4)
-					asm_error("incompatable segments");
+				type = asm_local_fetch(&num, loc_cnt, asm_char_parse(token_buf[0]), token_buf[1] == 'f');
 			} else {
 				// its a numeric (for realz)
 				num = asm_num_parse(token_buf);
@@ -938,7 +948,7 @@ char asm_evaluate(uint16_t *result)
 			eindex--;
 		} else {
 			// handle numbers
-			exp_vstack_push(&vindex, num);
+			exp_vstack_push(&vindex, type, num);
 		}
 		
 		// check for ending conditions
@@ -952,11 +962,10 @@ char asm_evaluate(uint16_t *result)
 	
 	if (vindex != 1) asm_error("value stack overpopulation");
 	
-	*result = exp_vstack[0];
+	*result = exp_vstack[0].value;
 	
-	// if force static, return static
-	if (absol && type) return 4;
-	return type;
+	// return type
+	return exp_vstack[0].type;
 }
 
 /*
@@ -989,8 +998,8 @@ uint16_t asm_bracket(char nofail)
 		return 0;
 	}
 	
-	if (res < 4)
-		asm_error("cannot relocate index");
+	if (res != 4)
+		asm_error("must be absolute");
 	
 	return result;
 }
@@ -1157,13 +1166,18 @@ void asm_emit_expression(uint16_t size)
 		// relocate!
 		printf("reloc at %04X\n", asm_address);
 	}
+	
+	if (res > 4 && asm_pass) {
+		// external!
+		printf("external at %04X\n", asm_address);
+	}
 		
 	b = value & 0xFF;
 	asm_emit(&b, 1);
 	
 	if (size == 1) {
 		// here we output only a byte
-		if (res < 4)
+		if (res != 4 && asm_pass)
 			asm_error("cannot relocate byte");
 	
 	} else {
@@ -1357,13 +1371,14 @@ void asm_type(char *name)
 char asm_instr(char *in)
 {
 	uint16_t result;
+	uint8_t type;
 	
 	if (!strcmp(in, "nop")) {
 		asm_emit((uint8_t *) "\x00", 1);
 		return 1;
 	} else if (!strcmp(in, "test")) {
-		if (asm_evaluate(&result))
-			printf("Exp: %d\n", result);
+		if ((type = asm_evaluate(&result)))
+			printf("Exp: %d (%d)\n", result, type);
 		return 1;
 	}
 	
@@ -1543,7 +1558,7 @@ void asm_assemble()
 				type = asm_evaluate(&result);
 				
 				if (type != 4)
-					asm_error("expression must be absolute");
+					asm_error("must be absolute");
 				
 				if (result)
 					trdepth++;

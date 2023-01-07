@@ -18,7 +18,6 @@ text_v = 	0
 
 .data
 
-
 	.def byte	0
 1:	.def byte	"Hello :", data_v, 0
 2:	.def word_t	2b
