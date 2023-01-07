@@ -1284,7 +1284,6 @@ void asm_define(char *type, uint16_t count)
 		asm_error("define domain overrun");
 	
 	asm_fill(size * (count - i));
-	asm_eol();
 }
 
 /*
@@ -1346,7 +1345,7 @@ void asm_type(char *name)
 	type->size = base;
 	
 	asm_expect('}');
-	asm_eol();
+	
 }
 
 /*
@@ -1491,8 +1490,12 @@ void asm_assemble()
 	
 	// general line input stuff
 	while (1) {
-		// Read the next 
+		// read the next 
 		tok = asm_token_read();
+		//if (tok != 'a') printf("reading: %c\n", tok);
+		//else printf("reading: %s\n", token_buf);
+		
+		// at end of assembly, next pass or done
 		if (tok == -1) {
 			
 			if (ifdepth)
@@ -1607,6 +1610,7 @@ void asm_assemble()
 				asm_token_cache(sym_name);
 				result = asm_bracket(1);
 				asm_define(sym_name, result);
+				asm_eol();
 
 			}
 			
@@ -1629,17 +1633,16 @@ void asm_assemble()
 				sym = asm_sym_update(sym_table, token_buf, asm_seg, sym, asm_address);
 				sym->size = size;
 				asm_define(sym_name, result);
+				asm_eol();
 			}
 			
 			// type directive
 			else if (!strcmp(token_buf, "type")) {
-				
-
-				
 				tok = asm_token_read();
 				if (tok == 'a') {
 					asm_token_cache(sym_name);
 					asm_type(sym_name);
+					asm_eol();
 				} else
 					asm_error("expected symbol");
 			} else
@@ -1649,9 +1652,8 @@ void asm_assemble()
 		}
 		
 		// skip if in an untrue if segment
-		if (ifdepth > trdepth) {
+		if (ifdepth > trdepth && tok != 'n') {
 			asm_skip();
-			continue;
 		}
 		
 		// symbol read
