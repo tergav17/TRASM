@@ -114,6 +114,7 @@ struct reloc *asm_alloc_reloc()
 	int i;
 	
 	// allocate start of relocation table
+	reloc_count++;
 	new = (struct reloc *) asm_alloc(sizeof(struct reloc));
 	for (i = 0; i < RELOC_SIZE; i++) new->addr[i] = 255;
 	new->next = NULL;
@@ -632,6 +633,80 @@ void asm_extern(char *name)
 	
 	ext_count++;
 	
+}
+
+/*
+ * adds an address into a relocation table, extending it if needed
+ *
+ * tab = relocation table
+ * target = address to add
+ */
+void asm_reloc(struct reloc *tab, uint16_t target)
+{
+	struct reloc *curr;
+	uint16_t last, diff;
+	uint8_t b;
+	int i;
+	
+	// begin at table start
+	curr = tab;
+	last = 0;
+	i = 0;
+	// find end of table, forwarding if needed
+	while (curr->addr[i] != 255) {
+		// forwarding section
+		if (last + curr->addr[i] >= target) {
+			diff = target - last;
+			printf("targetting %04X\n", last + curr->addr[i]);
+			target = last + curr->addr[i];
+			last += curr->addr[i];
+			curr->addr[i] = diff;
+		} else {
+			last += curr->addr[i];
+		}
+		i++;
+	}
+	
+	// diff the difference
+	diff = target - last;
+	printf("diff starts at %d\n", diff);
+	do {
+		// calculate next byte to add
+		if (diff < 254) {
+			b = diff;
+			diff = 0;
+		} else {
+			diff = diff - 254;
+			b = 254;
+		}
+		
+		// add it to the reloc table, extending if needed
+		printf("adding: %d\n", b);
+		curr->addr[i++] = b;
+		if (i >= RELOC_SIZE) {
+			i = 0;
+			curr->next = asm_alloc_reloc();
+			curr = curr->next;
+		}
+	} while (b == 254);
+	
+	// begin at table start
+	curr = tab;
+	last = 0;
+	i = 0;
+	// dump
+	while (curr->addr[i] != 255) {
+		// forwarding section
+		last += curr->addr[i];
+		
+		if (curr->addr[i] != 254) {
+			printf("table has: %04X (%02X)\n", last, curr->addr[i]);
+		} else {
+			printf("table has: ---- (%02X)\n", curr->addr[i]);
+		}
+		
+		i++;
+	}
 }
 
 /*
@@ -1239,6 +1314,7 @@ void asm_emit_expression(uint16_t size)
 		
 	if (res > 0 && res < 4 && asm_pass) {
 		// relocate!
+		asm_reloc(reloc_table, asm_address);
 		printf("reloc at %04X\n", asm_address);
 	}
 	
