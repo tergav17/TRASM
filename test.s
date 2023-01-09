@@ -12,7 +12,7 @@
 }
 
 data_v =	1
-text_v = 	0
+text_v = 	1
 
 ; text_v should emit, then data_v
 
@@ -36,7 +36,6 @@ text_v = 	0
 .text
 
 	.def byte	$foobar.b.low
- .globl testlbl
 testlbl:
 	.def word_t	1b,1f
 	

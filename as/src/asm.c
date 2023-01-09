@@ -52,6 +52,12 @@ int loc_cnt;
 /* head of global table */
 struct global *glob_table;
 
+/* head of extern table */
+struct extrn *ext_table;
+
+/* head of relocation table */
+struct reloc *reloc_table;
+
 /* since this is suppose to work like the assembly version, we will preallocate a heap */
 char heap[HEAP_SIZE];
 
@@ -62,6 +68,8 @@ int heap_top;
 int sym_count;
 int loc_count;
 int glob_count;
+int ext_count;
+int reloc_count;
 
 /*
  * prints out an error message and exits
@@ -96,10 +104,28 @@ void *asm_alloc(int size)
 }
 
 /*
+ * creates a new reloc struct and inits it
+ *
+ * returns new object
+ */
+struct reloc *asm_alloc_reloc()
+{
+	struct reloc *new;
+	int i;
+	
+	// allocate start of relocation table
+	new = (struct reloc *) asm_alloc(sizeof(struct reloc));
+	for (i = 0; i < RELOC_SIZE; i++) new->addr[i] = 255;
+	new->next = NULL;
+	
+	return new;
+}
+
+/*
  * resets the top of the heap to the bottom
  */
 void asm_reset()
-{
+{	
 	heap_top = 0;
 	
 	sym_table = NULL;
@@ -110,9 +136,14 @@ void asm_reset()
 	sym_table = (struct symbol *) asm_alloc(sizeof(struct symbol));
 	sym_table->parent = NULL;
 	
-	sym_count = 0;
+	// allocate start of relocation table
+	reloc_table = asm_alloc_reloc();
+	
+	sym_count = 1;
 	loc_count = 0;
 	glob_count = 0;
+	ext_count = 0;
+	reloc_count = 1;
 }
 
 /*
@@ -557,6 +588,50 @@ void asm_glob(struct symbol *sym)
 	} else {
 		glob_table = new;
 	}
+}
+
+/*
+ * defines an external symbol
+ *
+ * name = name of new symbol
+ */
+void asm_extern(char *name)
+{
+	struct symbol *sym;
+	struct extrn *curr, *last;
+	uint8_t extn;
+	
+	// external numbers start at 5
+	extn = 5;
+	
+	// find the last external, and count how many there are
+	last = NULL;
+	curr = ext_table;
+	while (curr) {
+		extn++;
+		last = curr;
+		curr = curr->next;
+	}
+	if (!extn)
+		asm_error("out of externals");
+	
+	sym = asm_sym_update(sym_table, name, extn, NULL, 0);
+	
+	// create extern
+	curr = (struct extrn *) asm_alloc(sizeof(struct extrn));
+	curr->symbol = sym;
+	curr->reloc = asm_alloc_reloc();
+	curr->next = NULL;
+	
+	// add it to tabl 
+	if (last) {
+		last->next = curr;
+	} else {
+		ext_table = curr;
+	}
+	
+	ext_count++;
+	
 }
 
 /*
@@ -1518,7 +1593,7 @@ void asm_assemble()
 			
 			if (!asm_pass) {
 				// first pass -> second pass
-				printf("first pass done, est %d bytes used (%d:%d)\n", (18 * sym_count) + (6 * loc_count), sym_count, loc_count);
+				printf("first pass done, %d Z80 bytes used (%d:%d:%d:%d:%d)\n", (18 * sym_count) + (6 * loc_count) + (4 * glob_count) + (4 * ext_count) + ((2 + RELOC_SIZE) * reloc_count), sym_count, loc_count, glob_count, ext_count, reloc_count);
 				asm_pass++;
 				loc_cnt = 0;
 				
@@ -1536,7 +1611,7 @@ void asm_assemble()
 				continue;
 			} else {
 				// emit relocation data and symbol stuff
-				printf("second pass done, est %d bytes used (%d:%d)\n", (18 * sym_count) + (6 * loc_count), sym_count, loc_count);
+				printf("second pass done, %d Z80 bytes used (%d:%d:%d:%d:%d)\n", (18 * sym_count) + (6 * loc_count) + (4 * glob_count) + (4 * ext_count) + ((2 + RELOC_SIZE) * reloc_count), sym_count, loc_count, glob_count, ext_count, reloc_count);
 				sio_append();
 				break;
 			}
@@ -1615,6 +1690,17 @@ void asm_assemble()
 						asm_error("undefined symbol");
 					asm_glob(sym);
 				}
+				asm_eol();
+			}
+			
+			// extern directive
+			else if (!strcmp(token_buf, "extern")) {
+				tok = asm_token_read();
+				if (tok != 'a') 
+					asm_error("expected symbol");
+				if (!asm_pass)
+					asm_extern(token_buf);
+				asm_eol();
 			}
 			
 			// define directive

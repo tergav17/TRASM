@@ -33,9 +33,11 @@ struct local {
 	struct local *next;
 };
 
-/* Z80 size = 4 bytes */
+#define RELOC_SIZE 8
+
+/* Z80 size = RELOC_SIZE + 2 bytes */
 struct reloc {
-	uint16_t address;
+	uint8_t addr[RELOC_SIZE];
 	struct reloc *next;
 };
 
