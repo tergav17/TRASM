@@ -645,50 +645,67 @@ void asm_reloc(struct reloc *tab, uint16_t target)
 {
 	struct reloc *curr;
 	uint16_t last, diff;
-	uint8_t b;
+	uint8_t next;
 	int i;
 	
 	// begin at table start
 	curr = tab;
 	last = 0;
 	i = 0;
-	// find end of table, forwarding if needed
-	while (curr->addr[i] != 255) {
-		// forwarding section
-		if (last + curr->addr[i] >= target) {
+	next = 255;
+	// find end of table
+	while (curr->addr[i] != 255 && next != 255) {
+		
+		if (target >= curr->addr[i] + last) {
 			diff = target - last;
-			printf("targetting %04X\n", last + curr->addr[i]);
-			target = last + curr->addr[i];
-			last += curr->addr[i];
+			next = curr->addr[i] - diff;
 			curr->addr[i] = diff;
-		} else {
-			last += curr->addr[i];
 		}
+		
+		last += curr->addr[i];
 		i++;
+		
+		// advance to next record
+		if (i >= RELOC_SIZE) {
+			curr = curr->next;
+			i = 0;
+		}
+	}
+	
+	// do forwarding if needed
+	while (curr->addr[i] != 255) {
+		last += curr->addr[i];
+		i++;
+		
+		// advance to next record
+		if (i >= RELOC_SIZE) {
+			curr = curr->next;
+			i = 0;
+		}
 	}
 	
 	// diff the difference
-	diff = target - last;
+	if (next == 255) diff = target - last;
 	printf("diff starts at %d\n", diff);
 	do {
 		// calculate next byte to add
 		if (diff < 254) {
-			b = diff;
+			next = diff;
 			diff = 0;
 		} else {
 			diff = diff - 254;
-			b = 254;
+			next = 254;
 		}
 		
-		// add it to the reloc table, extending if needed
-		printf("adding: %d\n", b);
-		curr->addr[i++] = b;
+		// add it to the reloc table, extending a record if needed
+		printf("adding: %d\n", next);
+		curr->addr[i++] = next;
 		if (i >= RELOC_SIZE) {
 			i = 0;
 			curr->next = asm_alloc_reloc();
 			curr = curr->next;
 		}
-	} while (b == 254);
+	} while (next == 254);
 	
 	// begin at table start
 	curr = tab;
