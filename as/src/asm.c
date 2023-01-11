@@ -6,8 +6,10 @@
 #include "asm.h"
 #include "sio.h"
 
+// instruction table
+#include "isr.h"
+
 #include <stdio.h>
-#include <string.h>
 #include <stdlib.h>
 
 /*
@@ -74,6 +76,32 @@ int loc_count;
 int glob_count;
 int ext_count;
 int reloc_count;
+
+/*
+ * checks if a string is equal
+ * string a is read as lower case
+ *
+ * a = pointer to string a
+ * b = pointer to string b
+ */
+char asm_sequ(char *a, char *b) {
+	char lower;
+	
+	while (*b) {
+		lower = *a;
+		if (lower >= 'A' && lower <= 'Z')
+			lower += 'a'-'A';
+		
+		if (*a != *b)
+			return 0;
+		
+		a++;
+		b++;
+	}
+	
+	return *a==*b;
+	
+}
 
 /*
  * prints out an error message and exits
@@ -417,11 +445,11 @@ struct symbol *asm_type_size(char *type, uint16_t *result)
 	struct symbol *sym;
 	
 	// built in types
-	if (!strcmp(type, "byte")) {
+	if (asm_sequ(type, "byte")) {
 		*result = 1;
 		return NULL;
 	}
-	if (!strcmp(type, "word")) {
+	if (asm_sequ(type, "word")) {
 		*result = 2;
 		return NULL;
 	}
@@ -1583,6 +1611,21 @@ void asm_type(char *name)
 }
 
 /*
+ * assembles an instructions
+ *
+ * isr = pointer to instruct
+ */
+void asm_doisr(struct instruct *isr) {
+	if (isr->type == BASIC) {
+		asm_emit(isr->opcode);
+	} else if (isr->type == BASIC_EXT) {
+		asm_emit(isr->arg);
+		asm_emit(isr->opcode);
+	} else 
+		asm_error("unknown instruction type");
+}
+
+/*
  * attempts to assemble an instruction assuming a symbol has just been tokenized
  *
  * in = pointer to string
@@ -1590,16 +1633,17 @@ void asm_type(char *name)
  */
 char asm_instr(char *in)
 {
-	uint16_t result;
-	uint8_t type;
+	int i;
 	
-	if (!strcmp(in, "nop")) {
-		asm_emit(0x00);
-		return 1;
-	} else if (!strcmp(in, "test")) {
-		if ((type = asm_evaluate(&result)))
-			printf("Exp: %d (%d)\n", result, type);
-		return 1;
+	// search for and assemble instruction
+	i = 0;
+	while (isr_table[i].type) {
+		if (asm_sequ(in, isr_table[i].mnem)) {
+			asm_doisr(&isr_table[i]);
+			return 1;
+		}
+		
+		i++;
 	}
 	
 	return 0;
@@ -1881,7 +1925,7 @@ void asm_assemble()
 			
 			
 			// if directive
-			if (!strcmp(token_buf, "if")) {
+			if (asm_sequ(token_buf, "if")) {
 				ifdepth++;
 				
 				// evaluate the expression
@@ -1898,7 +1942,7 @@ void asm_assemble()
 			}
 			
 			// endif directive
-			else if (!strcmp(token_buf, "endif")) {
+			else if (asm_sequ(token_buf, "endif")) {
 				if(!ifdepth)
 					asm_error("unpaired .endif");
 				
@@ -1918,11 +1962,11 @@ void asm_assemble()
 		
 			
 			next = 0;
-			if (!strcmp(token_buf, "text")) {
+			if (asm_sequ(token_buf, "text")) {
 				next = 1;
-			} else if (!strcmp(token_buf, "data")) {
+			} else if (asm_sequ(token_buf, "data")) {
 				next = 2;
-			} else if (!strcmp(token_buf, "bss")) {
+			} else if (asm_sequ(token_buf, "bss")) {
 				next = 3;
 			}
 			
@@ -1935,7 +1979,7 @@ void asm_assemble()
 			}
 			
 			// globl directive
-			else if (!strcmp(token_buf, "globl")) {
+			else if (asm_sequ(token_buf, "globl")) {
 				tok = asm_token_read();
 				if (tok != 'a') 
 					asm_error("expected symbol");
@@ -1949,7 +1993,7 @@ void asm_assemble()
 			}
 			
 			// extern directive
-			else if (!strcmp(token_buf, "extern")) {
+			else if (asm_sequ(token_buf, "extern")) {
 				tok = asm_token_read();
 				if (tok != 'a') 
 					asm_error("expected symbol");
@@ -1959,7 +2003,7 @@ void asm_assemble()
 			}
 			
 			// define directive
-			else if (!strcmp(token_buf, "def")) {
+			else if (asm_sequ(token_buf, "def")) {
 				tok = asm_token_read();
 				if (tok != 'a') 
 					asm_error("expected symbol");
@@ -1971,7 +2015,7 @@ void asm_assemble()
 			}
 			
 			// label define directive
-			else if (!strcmp(token_buf, "defl")) {
+			else if (asm_sequ(token_buf, "defl")) {
 				tok = asm_token_read();
 				if (tok != 'a') 
 					asm_error("expected symbol");
@@ -1993,7 +2037,7 @@ void asm_assemble()
 			}
 			
 			// type directive
-			else if (!strcmp(token_buf, "type")) {
+			else if (asm_sequ(token_buf, "type")) {
 				tok = asm_token_read();
 				if (tok == 'a') {
 					asm_token_cache(sym_name);

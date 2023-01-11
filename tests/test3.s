@@ -1,0 +1,3 @@
+; instruction tests
+
+	ldi
