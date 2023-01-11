@@ -64,6 +64,10 @@ char heap[HEAP_SIZE];
 /* heap top */
 int heap_top;
 
+/* record keeping */
+uint16_t reloc_rec;
+uint16_t glob_rec;
+
 /* telemetry stuff */
 int sym_count;
 int loc_count;
@@ -567,6 +571,7 @@ void asm_glob(struct symbol *sym)
 	struct global *curr, *new;
 	
 	glob_count++;
+	glob_rec++;
 	new = (struct global *) asm_alloc(sizeof(struct global));
 	new->symbol = sym;
 	new->next = NULL;
@@ -636,6 +641,27 @@ void asm_extern(char *name)
 }
 
 /*
+ * fetches an extern record
+ *
+ * num = external number
+ * returns extrn struct or null if not found
+ */
+struct extrn *asm_extern_fetch(uint8_t num)
+{
+	struct extrn *curr;
+	
+	curr = ext_table;
+	num = num - 5;
+	
+	while (curr && num) {
+		curr = curr->next;
+		num--;
+	}
+		
+	return curr;
+}
+
+/*
  * adds an address into a relocation table, extending it if needed
  *
  * tab = relocation table
@@ -645,7 +671,7 @@ void asm_reloc(struct reloc *tab, uint16_t target)
 {
 	struct reloc *curr;
 	uint16_t last, diff;
-	uint8_t next;
+	uint8_t next, tmp;
 	int i;
 	
 	// begin at table start
@@ -654,9 +680,9 @@ void asm_reloc(struct reloc *tab, uint16_t target)
 	i = 0;
 	next = 255;
 	// find end of table
-	while (curr->addr[i] != 255 && next != 255) {
+	while (curr->addr[i] != 255 && next == 255) {
 		
-		if (target >= curr->addr[i] + last) {
+		if (target <= curr->addr[i] + last) {
 			diff = target - last;
 			next = curr->addr[i] - diff;
 			curr->addr[i] = diff;
@@ -674,6 +700,12 @@ void asm_reloc(struct reloc *tab, uint16_t target)
 	
 	// do forwarding if needed
 	while (curr->addr[i] != 255) {
+		
+		// swap
+		tmp = curr->addr[i];
+		curr->addr[i] = next;
+		next = tmp;
+		
 		last += curr->addr[i];
 		i++;
 		
@@ -686,7 +718,7 @@ void asm_reloc(struct reloc *tab, uint16_t target)
 	
 	// diff the difference
 	if (next == 255) diff = target - last;
-	printf("diff starts at %d\n", diff);
+	else diff = next;
 	do {
 		// calculate next byte to add
 		if (diff < 254) {
@@ -698,15 +730,17 @@ void asm_reloc(struct reloc *tab, uint16_t target)
 		}
 		
 		// add it to the reloc table, extending a record if needed
-		printf("adding: %d\n", next);
 		curr->addr[i++] = next;
 		if (i >= RELOC_SIZE) {
 			i = 0;
 			curr->next = asm_alloc_reloc();
 			curr = curr->next;
 		}
+		// record keeping
+		if (tab == reloc_table) reloc_rec++;
 	} while (next == 254);
 	
+	/*
 	// begin at table start
 	curr = tab;
 	last = 0;
@@ -723,6 +757,27 @@ void asm_reloc(struct reloc *tab, uint16_t target)
 		}
 		
 		i++;
+	}
+	*/
+}
+
+/*
+ * outputs a relocation table to a.out
+ *
+ * tab = relocation table
+ */
+void asm_reloc_out(struct reloc *tab)
+{
+	int i;
+	
+	i = 0;
+	while (tab) {
+		sio_out((char) tab->addr[i]);
+		if (tab->addr[i++] == 255) break;
+		if (i > RELOC_SIZE) {
+			tab = tab->next;
+			i = 0;
+		}
 	}
 }
 
@@ -1172,40 +1227,34 @@ uint16_t asm_bracket(char nofail)
 }
 
 /*
- * emits a number of bytes into assembly output
+ * emits a byte into assembly output
  * no bytes emitted on first pass, only indicies updated
  *
- * s = pointer to byte array
- * n = number of bytes
+ * b = byte to emit
  */
-void asm_emit(uint8_t *s, int n)
+void asm_emit(uint8_t b)
 {
-	int i;
-	
-	for (i = 0; i < n; i++) {
-		if (asm_pass) {
-			
-			switch (asm_seg) {
-				case 1:
-					sio_out((char) s[i]);
-					break;
-					
-				case 2:
-					sio_tmp((char) s[i]);
-					break;
-					
-				case 3:
-					if (s[i]) 
-						asm_error("data in bss");
-					break;
-					
-				default:
-					break;
-			}
-		} // else printf("%04X : %02X\n", asm_address, s[i]);
+	if (asm_pass) {
+		switch (asm_seg) {
+			case 1:
+				sio_out((char) b);
+				break;
+				
+			case 2:
+				sio_tmp((char) b);
+				break;
+				
+			case 3:
+				if (b) 
+					asm_error("data in bss");
+				break;
+				
+			default:
+				break;
+		}
 	}
 	
-	asm_address += n;
+	asm_address++;
 }
 
 /*
@@ -1229,7 +1278,7 @@ void asm_string_emit()
 		if (c == '"') {
 			if (state != 1) {
 				if (state == 3) {
-					asm_emit(&decode, 1);
+					asm_emit(decode);
 				}
 				
 				break;
@@ -1242,7 +1291,7 @@ void asm_string_emit()
 			if (c == '\\') 
 				state = 1;
 			else 
-				asm_emit((uint8_t *) &c, 1);
+				asm_emit(c);
 			
 			
 		} else if (state == 1) {
@@ -1251,7 +1300,7 @@ void asm_string_emit()
 			
 			// simple escape
 			if (decode) {
-				asm_emit(&decode, 1);
+				asm_emit(decode);
 				state = 0;
 			} else if (asm_num(c)) {
 				state = 3;
@@ -1281,7 +1330,7 @@ void asm_string_emit()
 			// end the parsing
 			if (length < 1 || num == -1 || num >= radix) {
 				state = 0;
-				asm_emit(&decode, 1);
+				asm_emit(decode);
 			}
 		}
 		
@@ -1300,7 +1349,7 @@ void asm_string_emit()
  */
 void asm_fill(uint16_t space)
 {
-	while (space--) asm_emit((uint8_t *) "\x00", 1);
+	while (space--) asm_emit(0);
 }
 
 
@@ -1313,6 +1362,7 @@ void asm_fill(uint16_t space)
 void asm_emit_expression(uint16_t size)
 {
 	uint16_t value;
+	struct extrn *ext;
 	char res;
 	uint8_t b;
 	
@@ -1332,16 +1382,18 @@ void asm_emit_expression(uint16_t size)
 	if (res > 0 && res < 4 && asm_pass) {
 		// relocate!
 		asm_reloc(reloc_table, asm_address);
-		printf("reloc at %04X\n", asm_address);
 	}
 	
 	if (res > 4 && asm_pass) {
 		// external!
-		printf("external at %04X\n", asm_address);
+		ext = asm_extern_fetch(res);
+		if (!ext)
+			asm_error("cannot resolve external");
+		asm_reloc(ext->reloc, asm_address);
 	}
 		
 	b = value & 0xFF;
-	asm_emit(&b, 1);
+	asm_emit(b);
 	
 	if (size == 1) {
 		// here we output only a byte
@@ -1350,7 +1402,7 @@ void asm_emit_expression(uint16_t size)
 	
 	} else {
 		b = (value & 0xFF00) >> 8;
-		asm_emit(&b, 1);
+		asm_emit(b);
 	}
 }
 
@@ -1542,7 +1594,7 @@ char asm_instr(char *in)
 	uint8_t type;
 	
 	if (!strcmp(in, "nop")) {
-		asm_emit((uint8_t *) "\x00", 1);
+		asm_emit(0x00);
 		return 1;
 	} else if (!strcmp(in, "test")) {
 		if ((type = asm_evaluate(&result)))
@@ -1646,6 +1698,64 @@ void asm_fix_seg()
 }
 
 /*
+ * outputs the metadata blocks after assembly is done
+ */
+void asm_meta()
+{
+	int i;
+	struct global *glob;
+	struct extrn *ext;
+	
+	// output size of reloc records
+	reloc_rec++;
+	sio_out(reloc_rec & 0xFF);
+	sio_out(reloc_rec >> 8);
+				
+	// output reloc table
+	asm_reloc_out(reloc_table);
+	
+	// output size of global records
+	sio_out((glob_rec * 11) & 0xFF);
+	sio_out((glob_rec * 11) >> 8);
+	
+	// output all globals
+	glob = glob_table;
+	while (glob) {
+		// size-1 bytes for the name
+		i = 0;
+		while (i < SYMBOL_NAME_SIZE-1) {
+			sio_out(glob->symbol->name[i]);
+			i++;
+		}
+		// 1 for the type
+		sio_out(glob->symbol->type);
+		// 2 for the value
+		sio_out(glob->symbol->value & 0xFF);
+		sio_out(glob->symbol->value >> 8);
+		
+		glob = glob->next;
+	}
+	
+	// output all externals
+	ext = ext_table;
+	while (ext) {
+		// size-1 bytes for the name
+		i = 0;
+		while (i < SYMBOL_NAME_SIZE-1) {
+			sio_out(ext->symbol->name[i]);
+			i++;
+		}
+		// then the reloc table 
+		asm_reloc_out(ext->reloc);
+		
+		ext = ext->next;
+	}
+	
+	// end it all with a zero
+	sio_out(0);
+}
+
+/*
  * perform assembly functions
  */
 void asm_assemble()
@@ -1654,6 +1764,9 @@ void asm_assemble()
 	int ifdepth, trdepth;
 	uint16_t result, size;
 	struct symbol *sym;
+
+	// reset data structures
+	asm_reset();
 
 	// start at pass 1
 	asm_pass = 0;
@@ -1668,8 +1781,14 @@ void asm_assemble()
 	// reset local count
 	loc_cnt = 0;
 	
+	// reset records
+	glob_rec = reloc_rec = 0;
+	
 	// reset if and true depth
 	ifdepth = trdepth = 0;
+	
+	// fill space for a.out header
+	asm_fill(16);
 	
 	// general line input stuff
 	while (1) {
@@ -1694,18 +1813,61 @@ void asm_assemble()
 				asm_change_seg(1);
 				asm_fix_seg();
 				
+				// store bss_top for header emission
+				size = text_top + data_top + bss_top;
+				
 				// reset segment addresses
-				bss_top = data_top;
+				bss_top = text_top + data_top;
 				data_top = text_top;
 				asm_address = text_top = 0;
 				asm_seg = 1;
 				
 				sio_rewind();
+				
+				// emit header
+				
+				// magic number
+				asm_emit(0x18);
+				asm_emit(0x0E);
+				
+				// info byte
+				asm_emit(0x01);
+				
+				// text base
+				asm_emit(0x00);
+				asm_emit(0x00);
+				
+				// syscall vector
+				asm_emit(0xC3);
+				asm_emit(0x00);
+				asm_emit(0x00);
+				
+				// text entry
+				asm_emit(0x00);
+				asm_emit(0x00);
+				
+				// text top
+				asm_emit(data_top & 0xFF);
+				asm_emit(data_top >> 8);
+				
+				// data top
+				asm_emit(bss_top & 0xFF);
+				asm_emit(bss_top >> 8);
+				
+				// bss top
+				asm_emit(size & 0xFF);
+				asm_emit(size >> 8);
+				
+				
 				continue;
 			} else {
 				// emit relocation data and symbol stuff
 				printf("second pass done, %d Z80 bytes used (%d:%d:%d:%d:%d)\n", (18 * sym_count) + (6 * loc_count) + (4 * glob_count) + (4 * ext_count) + ((2 + RELOC_SIZE) * reloc_count), sym_count, loc_count, glob_count, ext_count, reloc_count);
 				sio_append();
+				
+				// output metablock
+				asm_meta();
+				
 				break;
 			}
 		}

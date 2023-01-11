@@ -13,9 +13,6 @@ int main(int argc, char *argv[])
 	// open up the source files
 	sio_open(argc, argv);
 	
-	//reset assembler heap and data structures
-	asm_reset();
-	
 	// do the assembly
 	asm_assemble();
 	
