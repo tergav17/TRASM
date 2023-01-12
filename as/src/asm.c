@@ -1057,9 +1057,10 @@ char exp_estack_has_lpar(int size)
  * evaluates an expression that is next in the token queue
  *
  * result = pointer where result will be placed in
+ * tok = initial token, 0 if none
  * returns status 0 = unresolved, 1 = text, 2 = data, 3 = bss, 4 = absolute, 5+ = external types
  */
-char asm_evaluate(uint16_t *result)
+uint8_t asm_evaluate(uint16_t *result, char itok)
 {
 	char tok, op, type, dosz;
 	uint16_t num;
@@ -1070,7 +1071,11 @@ char asm_evaluate(uint16_t *result)
 	vindex = eindex = 0;
 	
 	while (1) {
-		tok = asm_token_read();
+		// read token, or use inital token
+		if (itok) {
+			tok = itok;
+			itok = 0;
+		} else tok = asm_token_read();
 		
 		// default is absolute
 		type = 4;
@@ -1237,7 +1242,7 @@ uint16_t asm_bracket(char nofail)
 	asm_token_read();
 	
 	// evaluate
-	res = asm_evaluate(&result);
+	res = asm_evaluate(&result, 0);
 	
 	asm_expect(']');
 	
@@ -1283,6 +1288,16 @@ void asm_emit(uint8_t b)
 	}
 	
 	asm_address++;
+}
+
+/*
+ * emits a little endian word to the binary
+ *
+ * w = word to emit
+ */
+void asm_emit_word(uint16_t w) {
+	asm_emit(w & 0xFF);
+	asm_emit(w >> 8);
 }
 
 /*
@@ -1394,7 +1409,7 @@ void asm_emit_expression(uint16_t size)
 	char res;
 	uint8_t b;
 	
-	res = asm_evaluate(&value);
+	res = asm_evaluate(&value, 0);
 	
 	if (!res) {
 		// if we are on the second pass, error out
@@ -1611,16 +1626,164 @@ void asm_type(char *name)
 }
 
 /*
+ * parses an operand, extracting the type of operation and/or constant
+ *
+ * con = pointer to constant return
+ * returns type of operand
+ */
+uint8_t asm_arg(uint16_t *con) {
+	int i;
+	char tok;
+	uint8_t ret, type;
+	
+	// check if there is anything next
+	if (sio_peek() == '\n')
+		return 255;
+	
+	// assume at plain expression at first
+	ret = 31;
+	
+	// read the token
+	tok = asm_token_read();
+	
+	// maybe a register symbol?
+	if (tok == 'a') {
+		i = 0;
+		while (op_table[i].type != 255) {
+			if (asm_sequ(token_buf, op_table[i].mnem))
+				return op_table[i].type;
+			i++;
+		}
+	} 
+	
+	// maybe in parathesis?
+	if (tok == '(') {
+		tok = asm_token_read();
+		
+		// check for hl
+		if (asm_sequ(token_buf, "hl")) {
+			asm_expect(')');
+			return 6;
+		}
+		
+		// check for ix and iy
+		else if (asm_sequ(token_buf, "ix")) {
+			if (sio_peek() == '+') {
+				// its got a constant
+				asm_token_read();
+				tok = 0;
+				ret = 25;
+			} else {
+				asm_expect(')');
+				return 29;
+			}
+		} else if (asm_sequ(token_buf,"iy")) {
+			if (sio_peek() == '+') {
+				// its got a constant
+				asm_token_read();
+				tok = 0;
+				ret = 28;
+			} else {
+				asm_expect(')');
+				return 30;
+			}
+		} 
+		
+		// evaluate as deferred expression
+		else {
+			tok = 0;
+			ret = 32;
+		}
+	}
+	
+	// ok, its an expression
+	type = asm_evaluate(con, tok);
+	if (type != 4)
+		asm_error("expression must be absolute");
+	
+	// if not 29, needs a trailing ')'
+	if (ret != 31)
+		asm_expect(')');
+	return ret;
+}
+
+/*
  * assembles an instructions
+ * if/elses that would make yandev blush
  *
  * isr = pointer to instruct
  */
 void asm_doisr(struct instruct *isr) {
+	char prim;
+	uint8_t arg;
+	uint16_t con;
+	
+	// primary select to 0
+	prim = 0;
 	if (isr->type == BASIC) {
+		// basic ops
 		asm_emit(isr->opcode);
 	} else if (isr->type == BASIC_EXT) {
+		// basic extended ops
 		asm_emit(isr->arg);
 		asm_emit(isr->opcode);
+	} else if (isr->type == ARITH) {
+		arg = asm_arg(&con);
+		
+		// detect type of operation
+		if (isr->arg == CARRY) {
+			if (arg == 7) {
+				asm_expect(',');
+				arg = asm_arg(&con);
+			} else if (arg == 10) {
+				prim = 1;
+				asm_expect(',');
+				arg = asm_arg(&con);
+			} else asm_error("invalid operand");
+		} else if (isr->arg == ADD) {
+			if (arg == 7) {
+				asm_expect(',');
+				arg = asm_arg(&con);
+			} else if (arg == 10) {
+				prim = 2;
+				asm_expect(',');
+				arg = asm_arg(&con);
+			} else asm_error("invalid operand");
+		}
+		
+		if (prim == 0) {
+			if (arg < 8) {
+				// basic form a-(hl)
+				asm_emit(isr->opcode + arg);
+			} else if (arg >= 23 && arg <= 25) {
+				// ix class
+				asm_emit(0xDD);
+				asm_emit(isr->opcode + (arg - 23) + 4);
+				if (arg == 25)
+					asm_emit(con & 0xFF);
+			} else if (arg >= 26 && arg <= 28) {
+				// iy class
+				asm_emit(0xFD);
+				asm_emit(isr->opcode + (arg - 26) + 4);
+				if (arg == 28)
+					asm_emit(con & 0xFF);
+			} else if (arg == 31) {
+				// constant
+				asm_emit(isr->opcode + 0x46);
+				asm_emit(con);
+			} else asm_error("invalid operand");
+		} else if (prim == 1) {
+			// 16 bit carry ops bc-sp
+			if (arg >= 8 && arg <= 11) {
+				asm_emit(0xED);
+				asm_emit((0x42 + (isr->opcode == 0x88 ? 8 : 0)) + ((arg-8)<<4));
+			} else asm_error("invalid operand");
+		} else if (prim == 2) {
+			// 16 bit add ops bc-sp
+			if (arg >= 8 && arg <= 11) {
+				asm_emit(0x09 + ((arg-8)<<4));
+			} else asm_error("invalid operand");
+		}
 	} else 
 		asm_error("unknown instruction type");
 }
@@ -1891,16 +2054,13 @@ void asm_assemble()
 				asm_emit(0x00);
 				
 				// text top
-				asm_emit(data_top & 0xFF);
-				asm_emit(data_top >> 8);
+				asm_emit_word(data_top);
 				
 				// data top
-				asm_emit(bss_top & 0xFF);
-				asm_emit(bss_top >> 8);
+				asm_emit_word(bss_top);
 				
 				// bss top
-				asm_emit(size & 0xFF);
-				asm_emit(size >> 8);
+				asm_emit_word(size);
 				
 				
 				continue;
@@ -1929,7 +2089,7 @@ void asm_assemble()
 				ifdepth++;
 				
 				// evaluate the expression
-				type = asm_evaluate(&result);
+				type = asm_evaluate(&result, 0);
 				
 				if (type != 4)
 					asm_error("must be absolute");
@@ -2069,7 +2229,7 @@ void asm_assemble()
 				asm_token_read();
 				
 				// evaluate the expression
-				type = asm_evaluate(&result);
+				type = asm_evaluate(&result, 0);
 				
 				// set the new symbol
 				asm_sym_update(sym_table, sym_name, type, NULL, result);

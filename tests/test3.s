@@ -1,3 +1,3 @@
 ; instruction tests
 
-	ldi
+	add a,0x69
