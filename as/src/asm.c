@@ -1402,14 +1402,13 @@ void asm_fill(uint16_t space)
  *
  * size = maximum size of space
  */
-void asm_emit_expression(uint16_t size)
+void asm_emit_expression(uint16_t size, char tok)
 {
 	uint16_t value;
 	struct extrn *ext;
 	char res;
-	uint8_t b;
 	
-	res = asm_evaluate(&value, 0);
+	res = asm_evaluate(&value, tok);
 	
 	if (!res) {
 		// if we are on the second pass, error out
@@ -1421,31 +1420,36 @@ void asm_emit_expression(uint16_t size)
 	
 	if (!size)
 		asm_error("not a type");
-		
-	if (res > 0 && res < 4 && asm_pass) {
-		// relocate!
-		asm_reloc(reloc_table, asm_address);
-	}
-	
-	if (res > 4 && asm_pass) {
-		// external!
-		ext = asm_extern_fetch(res);
-		if (!ext)
-			asm_error("cannot resolve external");
-		asm_reloc(ext->reloc, asm_address);
-	}
-		
-	b = value & 0xFF;
-	asm_emit(b);
 	
 	if (size == 1) {
 		// here we output only a byte
-		if (res != 4 && asm_pass)
-			asm_error("cannot relocate byte");
+		if (res > 4 && asm_pass)
+			asm_error("cannot extern byte");
+		
+		if (res > 0 && res < 4) {
+			// emit a relative address
+			asm_emit((value - asm_address) - 1);
+		} else {
+			asm_emit(value);
+		}
 	
 	} else {
-		b = (value & 0xFF00) >> 8;
-		asm_emit(b);
+		
+		if (res > 0 && res < 4 && asm_pass) {
+			// relocate!
+			asm_reloc(reloc_table, asm_address);
+		}
+		
+		if (res > 4 && asm_pass) {
+			// external!
+			ext = asm_extern_fetch(res);
+			if (!ext)
+				asm_error("cannot resolve external");
+			asm_reloc(ext->reloc, asm_address);
+		}
+		
+		// here we output a word
+		asm_emit_word(value);
 	}
 }
 
@@ -1486,7 +1490,7 @@ void asm_define_type(struct symbol *type)
 			
 		} else {
 			// emit the expression
-			asm_emit_expression(sym->size);
+			asm_emit_expression(sym->size, 0);
 		}
 		
 
@@ -1539,7 +1543,7 @@ void asm_define(char *type, uint16_t count)
 			
 		} else {
 			// emit the expression
-			asm_emit_expression(size);
+			asm_emit_expression(size, 0);
 		}
 		
 		// see how many elements we emitted, and align to size
@@ -1629,9 +1633,10 @@ void asm_type(char *name)
  * parses an operand, extracting the type of operation and/or constant
  *
  * con = pointer to constant return
+ * eval = automatically evaluate expressions into con
  * returns type of operand
  */
-uint8_t asm_arg(uint16_t *con) {
+uint8_t asm_arg(uint16_t *con, uint8_t eval) {
 	int i;
 	char tok;
 	uint8_t ret, type;
@@ -1697,13 +1702,22 @@ uint8_t asm_arg(uint16_t *con) {
 	}
 	
 	// ok, its an expression
-	type = asm_evaluate(con, tok);
-	if (type != 4)
-		asm_error("expression must be absolute");
-	
-	// if not 29, needs a trailing ')'
-	if (ret != 31)
-		asm_expect(')');
+	if (eval) {
+		type = asm_evaluate(con, tok);
+		if (type == 0) {
+			*con = 0;
+			if (asm_pass)
+				asm_error("undefined symbol");
+		} else if (type != 4)
+			asm_error("must be absolute");
+		
+		// if not 29, needs a trailing ')'
+		if (ret != 31)
+			asm_expect(')');
+	} else {
+		// hack to return tok so the caller can run asm_emit_exp
+		*con = tok;
+	}
 	return ret;
 }
 
@@ -1715,7 +1729,7 @@ uint8_t asm_arg(uint16_t *con) {
  */
 void asm_doisr(struct instruct *isr) {
 	char prim;
-	uint8_t arg;
+	uint8_t arg, reg;
 	uint16_t con;
 	
 	// primary select to 0
@@ -1723,37 +1737,51 @@ void asm_doisr(struct instruct *isr) {
 	if (isr->type == BASIC) {
 		// basic ops
 		asm_emit(isr->opcode);
-	} else if (isr->type == BASIC_EXT) {
+	} 
+	
+	else if (isr->type == BASIC_EXT) {
 		// basic extended ops
 		asm_emit(isr->arg);
 		asm_emit(isr->opcode);
-	} else if (isr->type == ARITH) {
-		arg = asm_arg(&con);
+	} 
+	
+	else if (isr->type == ARITH) {
+		// arithmetic operations
+		arg = asm_arg(&con, 1);
 		
 		// detect type of operation
 		if (isr->arg == CARRY) {
-			if (arg == 7) {
-				asm_expect(',');
-				arg = asm_arg(&con);
-			} else if (arg == 10) {
+			// carry op
+			if (arg == 10) {
+				// hl adc/sbc
 				prim = 1;
-				asm_expect(',');
-				arg = asm_arg(&con);
-			} else asm_error("invalid operand");
+			} else  if (arg != 7)
+				asm_error("invalid operand");
+			
+			// grab next arg
+			asm_expect(',');
+			arg = asm_arg(&con, 1);
 		} else if (isr->arg == ADD) {
-			if (arg == 7) {
-				asm_expect(',');
-				arg = asm_arg(&con);
-			} else if (arg == 10) {
+			// add op
+			if (arg == 10) {
+				// hl add
 				prim = 2;
-				asm_expect(',');
-				arg = asm_arg(&con);
-			} else asm_error("invalid operand");
+				
+			} else if (arg == 21 || arg == 22) {
+				// ix/iy add
+				prim = 3;
+				reg = arg;
+			} else if (arg != 7)
+				asm_error("invalid operand");
+			
+			// grab next arg
+			asm_expect(',');
+			arg = asm_arg(&con, 1);
 		}
 		
 		if (prim == 0) {
 			if (arg < 8) {
-				// basic form a-(hl)
+				// basic from a-(hl)
 				asm_emit(isr->opcode + arg);
 			} else if (arg >= 23 && arg <= 25) {
 				// ix class
@@ -1783,9 +1811,58 @@ void asm_doisr(struct instruct *isr) {
 			if (arg >= 8 && arg <= 11) {
 				asm_emit(0x09 + ((arg-8)<<4));
 			} else asm_error("invalid operand");
+		} else if (prim == 3) {
+			// correct for hl -> ix,iy
+			if (arg == 10)
+				arg = reg;
+			if (arg == reg)
+				arg = 10;
+			
+			// pick ext block
+			if (reg == 21)
+				asm_emit(0xDD);
+			else
+				asm_emit(0xFD);
+			
+			// 16 bit add ops bc-sp
+			if (arg >= 8 && arg <= 11) {
+				asm_emit(0x09 + ((arg-8)<<4));
+			} else asm_error("invalid operand");
 		}
-	} else 
-		asm_error("unknown instruction type");
+	}
+	
+	else if (isr->type == INCR) {
+		// increment / decrement
+		arg = asm_arg(&con, 1);
+		
+		if (arg < 8) {
+			// basic from a-(hl)
+			asm_emit(isr->opcode + ((arg)<<3));
+		} else if (arg < 12) {
+			// words bc-sp
+			asm_emit(isr->arg + ((arg-8)<<4));
+		} else if (arg == 21) {
+			// ix
+			asm_emit(0xDD);
+			asm_emit(isr->arg + 0x20);
+		} else if (arg == 22) {
+			// iy
+			asm_emit(0xFD);
+			asm_emit(isr->arg + 0x20);
+		} else if (arg >= 23 && arg <= 25) {
+			// ixh-(ix+*)
+			asm_emit(0xDD);
+			asm_emit(isr->opcode + ((arg-19)<<3));
+			if (arg == 25)
+				asm_emit(con);
+		} else if (arg >= 26 && arg <= 28) {
+			// iyh-(iy+*)
+			asm_emit(0xFD);
+			asm_emit(isr->opcode + ((arg-22)<<3));
+			if (arg == 28)
+				asm_emit(con);
+		}
+	}
 }
 
 /*

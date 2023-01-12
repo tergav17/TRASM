@@ -9,6 +9,7 @@
 #define BASIC 1 // 1 byte instruction, no args
 #define BASIC_EXT 2 // 2 byte instruction, no arg 
 #define ARITH 3 // arithmetic operation group
+#define INCR 4 // increment / decrement group
 
 #define UNARY 0
 #define CARRY 1
@@ -143,6 +144,9 @@ struct instruct isr_table[] = {
 	{ ARITH, "xor", 0xA8, UNARY },
 	{ ARITH, "or", 0xB0, UNARY },
 	{ ARITH, "cp", 0xB8, UNARY },
+	
+	{ INCR, "inc", 0x04, 0x03 },
+	{ INCR, "dec", 0x05, 0x0B },
 	
 	{ END, "", 0x00, 0x00}
 };

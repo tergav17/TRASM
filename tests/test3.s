@@ -1,3 +1,3 @@
 ; instruction tests
 
-	add a,0x69
+	inc (ix+2+2)
