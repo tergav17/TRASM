@@ -10,6 +10,13 @@
 #define BASIC_EXT 2 // 2 byte instruction, no arg 
 #define ARITH 3 // arithmetic operation group
 #define INCR 4 // increment / decrement group
+#define BITSH 5 // bit / shift instruction
+#define STACK 6 // stack pop / push
+#define RETFLO 7 // return program flow
+#define JMPFLO 8 // jump program flow
+#define JRLFLO 9 // jump relative program flow
+#define CALFLO 10 // call program flow
+#define RSTFLO 11 // rst program flow
 
 #define UNARY 0
 #define CARRY 1
@@ -136,6 +143,7 @@ struct instruct isr_table[] = {
 	{ BASIC_EXT, "indr", 0xBA, 0xED },
 	{ BASIC_EXT, "otdr", 0xBB, 0xED },
 	
+	// arithmetic
 	{ ARITH, "add", 0x80, ADD },
 	{ ARITH, "adc", 0x88, CARRY },
 	{ ARITH, "sub", 0x90, UNARY },
@@ -145,8 +153,42 @@ struct instruct isr_table[] = {
 	{ ARITH, "or", 0xB0, UNARY },
 	{ ARITH, "cp", 0xB8, UNARY },
 	
+	// inc / dev
 	{ INCR, "inc", 0x04, 0x03 },
 	{ INCR, "dec", 0x05, 0x0B },
+	
+	// bit / shift
+	{ BITSH, "rlc", 0x00, 0 },
+	{ BITSH, "rrc", 0x08, 0 },
+	{ BITSH, "rl", 0x10, 0 },
+	{ BITSH, "rr", 0x18, 0 },
+	{ BITSH, "sla", 0x20, 0 },
+	{ BITSH, "sra", 0x28, 0 },
+	{ BITSH, "sll", 0x30, 0 },
+	{ BITSH, "srl", 0x38, 0 },
+	{ BITSH, "bit", 0x40, 1 },
+	{ BITSH, "res", 0x80, 1 },
+	{ BITSH, "set", 0xC0, 1 },
+	
+	// stack ops
+	{ STACK, "pop", 0xC1, 0 },
+	{ STACK, "push", 0xC5, 0 },
+	
+	// return
+	{ RETFLO, "ret", 0xC0, 0xC9 },
+	
+	// jump
+	{ JMPFLO, "jp", 0xC2, 0xE9 },
+	
+	// jump relative
+	{ JRLFLO, "jr", 0x18, 1 },
+	{ JRLFLO, "djnz", 0x10, 0},
+	
+	// call
+	{ CALFLO, "call", 0xC4, 0xCD },
+	
+	// rst
+	{ RSTFLO, "rst", 0xC7, 0 },
 	
 	{ END, "", 0x00, 0x00}
 };

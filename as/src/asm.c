@@ -1634,6 +1634,7 @@ void asm_type(char *name)
  *
  * con = pointer to constant return
  * eval = automatically evaluate expressions into con
+ *		  it also converts 'c' from a register to a flag is eval is not on
  * returns type of operand
  */
 uint8_t asm_arg(uint16_t *con, uint8_t eval) {
@@ -1642,7 +1643,7 @@ uint8_t asm_arg(uint16_t *con, uint8_t eval) {
 	uint8_t ret, type;
 	
 	// check if there is anything next
-	if (sio_peek() == '\n')
+	if (sio_peek() == '\n' || sio_peek() == -1)
 		return 255;
 	
 	// assume at plain expression at first
@@ -1655,8 +1656,11 @@ uint8_t asm_arg(uint16_t *con, uint8_t eval) {
 	if (tok == 'a') {
 		i = 0;
 		while (op_table[i].type != 255) {
-			if (asm_sequ(token_buf, op_table[i].mnem))
+			if (asm_sequ(token_buf, op_table[i].mnem)) {
+				if (!eval && op_table[i].type == 1)
+					return 16;
 				return op_table[i].type;
+			}
 			i++;
 		}
 	} 
@@ -1862,6 +1866,164 @@ void asm_doisr(struct instruct *isr) {
 			if (arg == 28)
 				asm_emit(con);
 		}
+	}
+	
+	else if (isr->type == BITSH) {
+		// bit / shift
+		arg = asm_arg(&con, 1);
+		
+		// bit instructions have a bit indicator that must be parsed
+		reg = 0;
+		if (isr->arg) {
+			if (arg != 31)
+				asm_error("invalid operand");
+			
+			if (con > 7)
+				asm_error("invalid operand");
+			
+			reg = con;
+			
+			// grab next
+			asm_expect(',');
+			arg = asm_arg(&con, 1);
+		}
+		
+		// check for (ix+*) / (iy+*)
+		if (arg == 25 || arg == 28) {
+			
+			if (arg == 25)
+				asm_emit(0xDD);
+			else
+				asm_emit(0xFD);
+			
+			asm_emit(0xCB);
+			
+			// write offset
+			asm_emit(con);
+			
+			arg = 6;
+			// its an undefined operation
+			if (sio_peek() == ',') {
+				asm_expect(',');
+				arg = asm_arg(&con, 1);
+				
+				// short out for (hl)
+				if (arg == 6)
+					arg = 8;
+			}
+		} else
+			asm_emit(0xCB);			
+	
+		if (arg > 7)
+			asm_error("invalid operand");
+		
+		asm_emit(isr->opcode + arg + (reg<<3));
+	}
+	
+	else if (isr->type == STACK) {
+		// stack operation
+		arg = asm_arg(&con, 1);
+		
+		// swap af for sp
+		if (arg == 11)
+			arg = 12;
+		else if (arg == 12)
+			arg = 11;
+		
+		if (arg >= 8 && arg <= 11) {
+			// bc-af
+			asm_emit(isr->opcode + ((arg-8)<<4));
+		} else if (arg == 21) {
+			asm_emit(0xDD);
+			asm_emit(isr->opcode + 0x20);
+		} else if (arg == 22) {
+			asm_emit(0xFD);
+			asm_emit(isr->opcode + 0x20);
+		} else
+			asm_error("invalid operand");
+	}
+	
+	else if (isr->type == RETFLO) {
+		// return
+		arg = asm_arg(&con, 0);
+		
+		if (arg >= 13 && arg <= 20) {
+			asm_emit(isr->opcode + ((arg-13)<<3));
+		} else if (arg == 255) {
+			asm_emit(isr->arg);
+		} else
+			asm_error("invalid operand");
+	}
+	
+	else if (isr->type == JMPFLO) {
+		// jump (absolute)
+		arg = asm_arg(&con, 0);
+		
+		if (arg >= 13 && arg <= 20) {
+			asm_emit(isr->opcode + ((arg-13)<<3));
+			asm_expect(',');
+			asm_emit_expression(2, 0);
+		} else if (arg == 31) {
+			asm_emit(isr->opcode + 1);
+			asm_emit_expression(2, con);
+		} else if (arg == 6) {
+			asm_emit(isr->arg);
+		} else if (arg == 29) {
+			asm_emit(0xDD);
+			asm_emit(isr->arg);
+		} else if (arg == 30) {
+			asm_emit(0xFD);
+			asm_emit(isr->arg);
+		} else
+			asm_error("invalid operand");
+	}
+	
+	else if (isr->type == JRLFLO) {
+		// jump (relative)
+		arg = asm_arg(&con, 0);
+		
+		// jr allows for 4 conditional modes
+		reg = 0;
+		if (isr->arg) {
+			if (arg >= 13 && arg <= 16) {
+				reg = (arg - 12)<<3;
+				asm_expect(',');
+				arg = asm_arg(&con, 0);
+			} else if (arg != 31)
+				asm_error("invalid operand");
+		}
+		
+		if (arg != 31)
+			asm_error("invalid operand");
+		
+		asm_emit(isr->opcode + reg);
+		asm_emit_expression(1, con);
+	}
+	
+	else if (isr->type == CALFLO) {
+		// call
+		arg = asm_arg(&con, 0);
+		
+		if (arg >= 13 && arg <= 20) {
+			asm_emit(isr->opcode + ((arg-13)<<3));
+			asm_expect(',');
+			asm_emit_expression(2, 0);
+		} else if (arg == 31) {
+			asm_emit(isr->arg);
+			asm_emit_expression(2, con);
+		} else
+			asm_error("invalid operand");
+	}
+	
+	else if (isr->type == RSTFLO) {
+		// rst
+		arg = asm_arg(&con, 1);
+		
+		if (arg != 31 || con & 0x7 || con > 0x38)
+			asm_error("invalid operand");
+		
+		
+		asm_emit(isr->opcode + con);
 	}
 }
 
