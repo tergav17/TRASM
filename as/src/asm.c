@@ -1673,6 +1673,18 @@ uint8_t asm_arg(uint16_t *con, uint8_t eval) {
 		if (asm_sequ(token_buf, "hl")) {
 			asm_expect(')');
 			return 6;
+		} 
+		
+		// check for c
+		else if (asm_sequ(token_buf, "c")) {
+			asm_expect(')');
+			return 33;
+		}
+		
+		// check for sp
+		else if (asm_sequ(token_buf, "sp")) {
+			asm_expect(')');
+			return 34;
 		}
 		
 		// check for ix and iy
@@ -1700,7 +1712,6 @@ uint8_t asm_arg(uint16_t *con, uint8_t eval) {
 		
 		// evaluate as deferred expression
 		else {
-			tok = 0;
 			ret = 32;
 		}
 	}
@@ -1730,8 +1741,9 @@ uint8_t asm_arg(uint16_t *con, uint8_t eval) {
  * if/elses that would make yandev blush
  *
  * isr = pointer to instruct
+ * returns 0 if successful
  */
-void asm_doisr(struct instruct *isr) {
+char asm_doisr(struct instruct *isr) {
 	char prim;
 	uint8_t arg, reg;
 	uint16_t con;
@@ -1760,7 +1772,7 @@ void asm_doisr(struct instruct *isr) {
 				// hl adc/sbc
 				prim = 1;
 			} else  if (arg != 7)
-				asm_error("invalid operand");
+				return 1;
 			
 			// grab next arg
 			asm_expect(',');
@@ -1776,7 +1788,7 @@ void asm_doisr(struct instruct *isr) {
 				prim = 3;
 				reg = arg;
 			} else if (arg != 7)
-				asm_error("invalid operand");
+				return 1;
 			
 			// grab next arg
 			asm_expect(',');
@@ -1803,18 +1815,21 @@ void asm_doisr(struct instruct *isr) {
 				// constant
 				asm_emit(isr->opcode + 0x46);
 				asm_emit(con);
-			} else asm_error("invalid operand");
+			} else 
+				return 1;
 		} else if (prim == 1) {
 			// 16 bit carry ops bc-sp
 			if (arg >= 8 && arg <= 11) {
 				asm_emit(0xED);
 				asm_emit((0x42 + (isr->opcode == 0x88 ? 8 : 0)) + ((arg-8)<<4));
-			} else asm_error("invalid operand");
+			} else 
+				return 1;
 		} else if (prim == 2) {
 			// 16 bit add ops bc-sp
 			if (arg >= 8 && arg <= 11) {
 				asm_emit(0x09 + ((arg-8)<<4));
-			} else asm_error("invalid operand");
+			} else
+				return 1;
 		} else if (prim == 3) {
 			// correct for hl -> ix,iy
 			if (arg == 10)
@@ -1831,7 +1846,8 @@ void asm_doisr(struct instruct *isr) {
 			// 16 bit add ops bc-sp
 			if (arg >= 8 && arg <= 11) {
 				asm_emit(0x09 + ((arg-8)<<4));
-			} else asm_error("invalid operand");
+			} else 
+				return 1;
 		}
 	}
 	
@@ -1865,7 +1881,8 @@ void asm_doisr(struct instruct *isr) {
 			asm_emit(isr->opcode + ((arg-22)<<3));
 			if (arg == 28)
 				asm_emit(con);
-		}
+		} else
+			return 1;
 	}
 	
 	else if (isr->type == BITSH) {
@@ -1876,10 +1893,10 @@ void asm_doisr(struct instruct *isr) {
 		reg = 0;
 		if (isr->arg) {
 			if (arg != 31)
-				asm_error("invalid operand");
+				return 1;
 			
 			if (con > 7)
-				asm_error("invalid operand");
+				return 1;
 			
 			reg = con;
 			
@@ -1915,7 +1932,7 @@ void asm_doisr(struct instruct *isr) {
 			asm_emit(0xCB);			
 	
 		if (arg > 7)
-			asm_error("invalid operand");
+			return 1;
 		
 		asm_emit(isr->opcode + arg + (reg<<3));
 	}
@@ -1940,7 +1957,7 @@ void asm_doisr(struct instruct *isr) {
 			asm_emit(0xFD);
 			asm_emit(isr->opcode + 0x20);
 		} else
-			asm_error("invalid operand");
+			return 1;
 	}
 	
 	else if (isr->type == RETFLO) {
@@ -1952,7 +1969,7 @@ void asm_doisr(struct instruct *isr) {
 		} else if (arg == 255) {
 			asm_emit(isr->arg);
 		} else
-			asm_error("invalid operand");
+			return 1;
 	}
 	
 	else if (isr->type == JMPFLO) {
@@ -1975,7 +1992,7 @@ void asm_doisr(struct instruct *isr) {
 			asm_emit(0xFD);
 			asm_emit(isr->arg);
 		} else
-			asm_error("invalid operand");
+			return 1;
 	}
 	
 	else if (isr->type == JRLFLO) {
@@ -1990,11 +2007,11 @@ void asm_doisr(struct instruct *isr) {
 				asm_expect(',');
 				arg = asm_arg(&con, 0);
 			} else if (arg != 31)
-				asm_error("invalid operand");
+				return 1;
 		}
 		
 		if (arg != 31)
-			asm_error("invalid operand");
+			return 1;
 		
 		asm_emit(isr->opcode + reg);
 		asm_emit_expression(1, con);
@@ -2012,7 +2029,7 @@ void asm_doisr(struct instruct *isr) {
 			asm_emit(isr->arg);
 			asm_emit_expression(2, con);
 		} else
-			asm_error("invalid operand");
+			return 1;
 	}
 	
 	else if (isr->type == RSTFLO) {
@@ -2020,11 +2037,149 @@ void asm_doisr(struct instruct *isr) {
 		arg = asm_arg(&con, 1);
 		
 		if (arg != 31 || con & 0x7 || con > 0x38)
-			asm_error("invalid operand");
+			return 1;
 		
 		
 		asm_emit(isr->opcode + con);
 	}
+	
+	else if (isr->type == IOIN) {
+		// in
+		arg = asm_arg(&con, 1);
+		
+		// special case for (c) only
+		if (arg == 33) {
+			asm_emit(0xED);
+			asm_emit(isr->arg + 0x30);
+			return 0;
+		}
+		
+		// throw out (hl)
+		if (arg == 6 || arg > 7)
+			return 1;
+		
+		// grab next argument
+		reg = arg;
+		asm_expect(',');
+		arg = asm_arg(&con, 1);
+		
+		// decode
+		if (reg == 7 && arg == 32) {
+			asm_emit(isr->opcode);
+			asm_emit(con);
+		} else if (arg == 33) {
+			asm_emit(0xED);
+			asm_emit(isr->arg + (reg<<3));
+		} else
+			return 1;
+	}
+	
+	else if (isr->type == IOOUT) {
+		// out
+		arg = asm_arg(&con, 1);
+		
+		if (arg == 32) {
+			// immedate
+			reg = con;
+			asm_expect(',');
+			arg = asm_arg(&con, 1);
+			
+			// only 'a' is supported
+			if (arg != 7)
+				return 1;
+			
+			asm_emit(isr->opcode);
+			asm_emit(reg);
+		} else if (arg == 33) {
+			// (c)
+			asm_expect(',');
+			arg = asm_arg(&con, 1);
+			
+			// no (hl), but we can do '0' instead
+			if (arg == 6)
+				return 1;
+			if (arg == 31 && !con)
+				arg = 6;
+				
+			if (arg > 7)
+				return 1;
+			
+			asm_emit(0xED);
+			asm_emit(isr->arg + (arg<<3));
+		} else
+			return 1;
+	}
+	
+	else if (isr->type == EXCH) {
+		// exchange
+		reg = asm_arg(&con, 1);
+		asm_expect(',');
+		arg = asm_arg(&con, 1);
+		
+		// af
+		if (reg == 12) {
+			if (arg == 12) {
+				asm_expect('\'');
+				asm_emit(isr->arg);
+			} else
+				return 1;
+		}
+		
+		// de
+		else if (reg == 9) {
+			if (arg == 10) {
+				asm_emit(isr->opcode + 0x08);
+			} else
+				return 1;
+		}
+		
+		// (sp)
+		else if (reg == 34) {
+			switch (arg) {
+				case 10:
+					break;
+					
+				case 21:
+					asm_emit(0xDD);
+					break;
+					
+				case 22:
+					asm_emit(0xFD);
+					break;
+					
+				default:
+					return 1;
+			}
+			
+			asm_emit(isr->opcode);
+		}
+	}
+	
+	else if (isr->type == INTMODE) {
+		// interrupt mode
+		arg = asm_arg(&con, 1);
+		
+		// only 0-2
+		if (arg != 31)
+			return 1;
+		
+		asm_emit(0xED);
+		switch (con) {
+			case 0:
+			case 1:
+				asm_emit(isr->opcode + (con<<4));
+				break;
+				
+			case 2:
+				asm_emit(isr->arg);
+				break;
+				
+			default:
+				return 1;
+		}
+	}
+	
+	return 0;
 }
 
 /*
@@ -2041,7 +2196,8 @@ char asm_instr(char *in)
 	i = 0;
 	while (isr_table[i].type) {
 		if (asm_sequ(in, isr_table[i].mnem)) {
-			asm_doisr(&isr_table[i]);
+			if (asm_doisr(&isr_table[i]))
+				asm_error("invalid operand");;
 			return 1;
 		}
 		

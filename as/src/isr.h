@@ -17,6 +17,10 @@
 #define JRLFLO 9 // jump relative program flow
 #define CALFLO 10 // call program flow
 #define RSTFLO 11 // rst program flow
+#define IOIN 12 // i/o in instruction
+#define IOOUT 13 // i/o out instruction
+#define EXCH 14 // exchange instruction
+#define INTMODE 15 // interrupt mode instruction
 
 #define UNARY 0
 #define CARRY 1
@@ -100,6 +104,8 @@ struct oprnd op_table[] = {
  * (iy) = 30
  * ?	= 31
  * (?)	= 32
+ * (c)  = 33
+ * (sp) = 34
  * next is \n = 255
  */
 
@@ -189,6 +195,18 @@ struct instruct isr_table[] = {
 	
 	// rst
 	{ RSTFLO, "rst", 0xC7, 0 },
+	
+	// in
+	{ IOIN, "in", 0xDB, 0x40 },
+	
+	// out
+	{ IOOUT, "out", 0xD3, 0x41 },
+	
+	// exchange
+	{ EXCH, "ex", 0xE3, 0x08 },
+	
+	// interrupt mode
+	{ INTMODE, "im", 0x46, 0x5E },
 	
 	{ END, "", 0x00, 0x00}
 };
