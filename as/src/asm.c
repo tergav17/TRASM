@@ -2,6 +2,7 @@
  * asm.c 
  *
  * assembler guts
+ * i really should have broken this up, but it will all be rewritten in assembly later...
  */
 #include "asm.h"
 #include "sio.h"
@@ -1303,7 +1304,7 @@ void asm_emit_word(uint16_t w) {
 /*
  * emits a string found in the char stream
  */
-void asm_string_emit()
+void asm_emit_string()
 {
 	char c, state;
 	int radix, length;
@@ -1388,29 +1389,25 @@ void asm_string_emit()
 /*
  * fills a region with either zeros or undefined allocated space
  *
- * count = number of bytes to fille
+ * size = number of bytes to fille
  */
-void asm_fill(uint16_t space)
+void asm_fill(uint16_t size)
 {
-	while (space--) asm_emit(0);
+	while (size--) asm_emit(0);
 }
 
-
 /*
- * helper function to evaluate an expression and emit the results
- * will handle relocation tracking and pass related stuff
+ * emits up to two bytes, and handels relocation tracking
  *
- * size = maximum size of space
+ * size = number of bytes to emit
+ * value = value to emit
+ * type = segment to emit into
  */
-void asm_emit_expression(uint16_t size, char tok)
+void asm_emit_addr(uint16_t size, uint16_t value, uint8_t type)
 {
-	uint16_t value;
 	struct extrn *ext;
-	char res;
 	
-	res = asm_evaluate(&value, tok);
-	
-	if (!res) {
+	if (!type) {
 		// if we are on the second pass, error out
 		if (asm_pass)
 			asm_error("undefined symbol");
@@ -1423,10 +1420,10 @@ void asm_emit_expression(uint16_t size, char tok)
 	
 	if (size == 1) {
 		// here we output only a byte
-		if (res > 4 && asm_pass)
+		if (type > 4 && asm_pass)
 			asm_error("cannot extern byte");
 		
-		if (res > 0 && res < 4) {
+		if (type > 0 && type < 4) {
 			// emit a relative address
 			asm_emit((value - asm_address) - 1);
 		} else {
@@ -1435,14 +1432,14 @@ void asm_emit_expression(uint16_t size, char tok)
 	
 	} else {
 		
-		if (res > 0 && res < 4 && asm_pass) {
+		if (type > 0 && type < 4 && asm_pass) {
 			// relocate!
 			asm_reloc(reloc_table, asm_address);
 		}
 		
-		if (res > 4 && asm_pass) {
+		if (type > 4 && asm_pass) {
 			// external!
-			ext = asm_extern_fetch(res);
+			ext = asm_extern_fetch(type);
 			if (!ext)
 				asm_error("cannot resolve external");
 			asm_reloc(ext->reloc, asm_address);
@@ -1451,6 +1448,22 @@ void asm_emit_expression(uint16_t size, char tok)
 		// here we output a word
 		asm_emit_word(value);
 	}
+}
+
+/*
+ * helper function to evaluate an expression and emit the results
+ * will handle relocation tracking and pass related stuff
+ *
+ * size = maximum size of space
+ */
+void asm_emit_expression(uint16_t size, char tok)
+{
+	uint16_t value;
+	uint8_t type;
+	
+	type = asm_evaluate(&value, tok);
+	
+	asm_emit_addr(size, value, type);
 }
 
 
@@ -1482,7 +1495,7 @@ void asm_define_type(struct symbol *type)
 		tok = sio_peek();
 		if (tok == '"') {
 			// emit the string
-			asm_string_emit();
+			asm_emit_string();
 			
 		} else if (tok == '{') {
 			// emit the type (recursive)
@@ -1535,7 +1548,7 @@ void asm_define(char *type, uint16_t count)
 		tok = sio_peek();
 		if (tok == '"') {
 			// emit the string
-			asm_string_emit();
+			asm_emit_string();
 			
 		} else if (tok == '{') {
 			// emit the type
@@ -1687,6 +1700,19 @@ uint8_t asm_arg(uint16_t *con, uint8_t eval) {
 			return 34;
 		}
 		
+		// check for bc
+		else if (asm_sequ(token_buf, "bc")) {
+			asm_expect(')');
+			return 35;
+		}
+		
+		// check for de
+		else if (asm_sequ(token_buf, "de")) {
+			asm_expect(')');
+			return 36;
+		}
+		
+		
 		// check for ix and iy
 		else if (asm_sequ(token_buf, "ix")) {
 			if (sio_peek() == '+') {
@@ -1745,8 +1771,8 @@ uint8_t asm_arg(uint16_t *con, uint8_t eval) {
  */
 char asm_doisr(struct instruct *isr) {
 	char prim;
-	uint8_t arg, reg;
-	uint16_t con;
+	uint8_t arg, reg, type;
+	uint16_t con, value;
 	
 	// primary select to 0
 	prim = 0;
@@ -2177,6 +2203,72 @@ char asm_doisr(struct instruct *isr) {
 			default:
 				return 1;
 		}
+	}
+	
+	else if (isr->type == LOAD) {
+		// load instruction
+		// i will never forgive you zilog
+		
+		// correct for carry flag
+		arg = asm_arg(&con, 0);
+		if (arg == 16)
+			arg = 1;
+		
+		// special case for deferred constant
+		if (arg == 32) {
+			type = asm_evaluate(&value, con);
+			asm_expect(')');
+			asm_expect(',');
+			arg = asm_arg(&con, 1);
+			
+			switch (arg) {
+				case 10:
+					asm_emit(0x22);
+					break;
+					
+				case 7:
+					asm_emit(0x32);
+					break;
+					
+				case 21:
+					asm_emit(0xDD);
+					asm_emit(0x22);
+					break;
+					
+				case 22:
+					asm_emit(0xFD);
+					asm_emit(0x22);
+					break;
+					
+				case 8:
+				case 9:
+				case 11:
+					asm_emit(0xED);
+					asm_emit(0x43 + ((arg-8)<<4));
+					break;
+					
+				default:
+					return 1;
+			}
+			
+			asm_emit_addr(2, value, type);
+		}
+		
+		// standard a-(hl)
+		else if (arg < 8) {
+			// correct for carry flag
+			asm_expect(',');
+			reg = asm_arg(&con, 0);
+			if (reg == 16)
+				reg = 1;
+			
+			if (arg < 8) {
+				asm_emit(isr->opcode + (arg<<3) + reg);
+			}
+			
+			
+		} else
+			return 1;
 	}
 	
 	return 0;

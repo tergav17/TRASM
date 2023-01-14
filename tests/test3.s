@@ -1,3 +1,5 @@
 ; instruction tests
 
-	im 2
+	ld (test),iy
+test:
+	.def byte 0

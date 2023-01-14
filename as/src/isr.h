@@ -21,6 +21,7 @@
 #define IOOUT 13 // i/o out instruction
 #define EXCH 14 // exchange instruction
 #define INTMODE 15 // interrupt mode instruction
+#define LOAD 16 // load instruction
 
 #define UNARY 0
 #define CARRY 1
@@ -67,6 +68,8 @@ struct oprnd op_table[] = {
 	{ 24, "ixl" },
 	{ 26, "iyh" },
 	{ 27, "iyl" },
+	{ 37, "i" },
+	{ 38, "r" },
 	{ 255, "" }
 };
 
@@ -106,6 +109,10 @@ struct oprnd op_table[] = {
  * (?)	= 32
  * (c)  = 33
  * (sp) = 34
+ * (bc) = 35
+ * (de) = 36
+ * i 	= 37
+ * r	= 38
  * next is \n = 255
  */
 
@@ -207,6 +214,9 @@ struct instruct isr_table[] = {
 	
 	// interrupt mode
 	{ INTMODE, "im", 0x46, 0x5E },
+	
+	// load instructions
+	{ LOAD, "ld", 0x00, 0x00 },
 	
 	{ END, "", 0x00, 0x00}
 };
