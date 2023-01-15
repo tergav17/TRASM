@@ -2265,7 +2265,7 @@ char asm_doisr(struct instruct *isr) {
 		}
 		
 		// standard a-(hl) and ixh-(iy+*)
-		else if (arg < 8 || (arg >= 23 || arg <= 28)) {
+		else if (arg < 8 || (arg >= 23 && arg <= 28)) {
 			// grab any constants if they exist
 			if (arg == 25 || arg == 28) {
 				type = asm_evaluate(&value, con);
@@ -2397,14 +2397,69 @@ char asm_doisr(struct instruct *isr) {
 		
 		}
 		
+		
+		// bc-sp, and ix/iy
+		else if ((arg >= 8 && arg <= 11) || (arg == 21 || arg == 22)) {
+			// correct for ix,iy into hl
+			if (arg == 21) {
+				asm_emit(0xDD);
+				arg = 10;
+			} else if (arg == 22) {
+				asm_emit(0xFD);
+				arg = 10;
+			} 
+			
+			// grab a direct or deferred word
+			asm_expect(',');
+			reg = asm_arg(&con, 0);
+			
+			if (reg == 31) {
+				// direct
+				asm_emit(0x01 + ((arg-8)<<4));
+				asm_emit_expression(2, con);
+			} else if (reg == 32) {
+				// deferred
+				if (arg == 10) {
+					// do hl
+					asm_emit(0x2A);
+				} else {
+					// bc, de, sp
+					asm_emit(0xED);
+					asm_emit(0x4B + ((arg-8)<<4));
+				}
+				asm_emit_expression(2, con);
+				asm_expect(')');
+			} else if (arg == 11) {
+				// sp specials
+				switch (reg) {
+					case 10:
+						break;
+						
+					case 21:
+						asm_emit(0xDD);
+						break;
+						
+					case 22:
+						asm_emit(0xFD);
+						break;
+						
+					default:
+						return 1;
+				}
+				asm_emit(0xF9);
+			} else
+				return 1;
+			
+		}
+		
+		// special loads
 		else if (arg >= 35 && arg <= 38) {
-			// special loads
 			asm_expect(',');
 			reg = asm_arg(&con, 1);
 			if (reg != 7)
 				return 1;
 			
-			case (arg) {
+			switch (arg) {
 				case 35:
 					asm_emit(0x02);
 					break;

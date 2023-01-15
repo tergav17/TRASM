@@ -1,5 +1,5 @@
 ; instruction tests
 
-	ld a,(test)
+	ret z
 test:
 	.def byte 0xEE
