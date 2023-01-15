@@ -1781,12 +1781,11 @@ uint8_t asm_arg(uint16_t *con, uint8_t eval) {
  * returns 0 if successful
  */
 char asm_doisr(struct instruct *isr) {
-	uint8_t prim, arg, reg, shift, type;
+	uint8_t prim, arg, reg, type;
 	uint16_t con, value;
 	
 	// primary select to 0
 	prim = 0;
-	shift = 0;
 	if (isr->type == BASIC) {
 		// basic ops
 		asm_emit(isr->opcode);
@@ -2280,10 +2279,120 @@ char asm_doisr(struct instruct *isr) {
 			if (reg == 16)
 				reg = 1;
 			
-			// ix class dest?
-			if (arg >= 23 && arg <= 25) {
+			// i* class dest?
+			if (arg >= 23 && arg <= 28) {
+				// check for ix or iy, correct iy
+				if (arg <= 25) {
+					// ix
+					asm_emit(0xDD);
+				} else {
+					// iy
+					asm_emit(0xFD);
+					
+					// iy should now act like ix
+					if (reg >= 23 && reg <= 28) {
+						if (reg < 26)
+							return 1;
+						reg = reg - 3;		
+					}
+					arg = arg - 3;
+				}
+				arg = arg - 19;
 				
+				// no h-(hl)
+				if (reg >= 4 && reg <= 6)
+					return 1;
+				
+				// downconvert ix*
+				if (reg >= 23 && reg <= 25) {
+					if (reg == 25)
+						return 1;
+					reg = reg - 19;
+				}
 			}
+			
+			// i* class src?
+			else if (reg >= 23 && reg <= 28) {
+				// no h-(hl)
+				if (arg >= 4 && arg <= 6)
+					return 1;
+				
+				// check for ix or iy, correct iy
+				if (reg <= 25) {
+					// ix
+					asm_emit(0xDD);
+				} else {
+					// iy
+					asm_emit(0xFD);
+					
+					// iy should now act like ix
+					if (reg >= 23 && reg <= 28) {
+						if (reg < 26)
+							return 1;
+						reg = reg - 3;		
+					}
+				}
+				
+				// grab ix/iy offset
+				if (reg == 25) {
+					type = asm_evaluate(&value, con);
+					asm_expect(')');
+					prim++;
+				}
+				
+				reg = reg - 19;
+			}
+			
+			// no (hl),(hl)
+			if (arg == 6 && reg == 6)
+				return 1;
+			
+			printf("emitting %d,%d!\n", arg, reg);
+			
+			if (arg < 8 && reg < 8) {
+				// reg8->reg8
+				asm_emit(0x40 + (arg<<3) + reg);
+				if (prim)
+					asm_emit_imm(value, type);
+			} else if (arg < 8 && reg == 31) {
+				// *->reg8
+				asm_emit(0x06 + (arg<<3));
+				if (prim)
+					asm_emit_imm(value, type);
+				type = asm_evaluate(&value, con);
+				asm_emit_imm(value, type);
+			} else if (arg == 7) {
+				// special a loads
+				switch (reg) {
+					case 35:
+						asm_emit(0x0A);
+						break;
+					
+					case 36:
+						asm_emit(0x1A);
+						break;
+						
+					case 32:
+						asm_emit(0x3A);
+						asm_emit_expression(2, con);
+						asm_expect(')');
+						break;
+						
+					case 37:
+						asm_emit(0xED);
+						asm_emit(0x57);
+						break;
+						
+					case 38:
+						asm_emit(0xED);
+						asm_emit(0x5F);
+						break;
+						
+					default:
+						return 1;
+				}
+			} else
+				return 1;
 			
 		} else
 			return 1;

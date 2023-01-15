@@ -1,5 +1,5 @@
 ; instruction tests
 
-	ld a,(iy+5)
+	ld a,(test)
 test:
-	.def byte 0
+	.def byte 0xEE
