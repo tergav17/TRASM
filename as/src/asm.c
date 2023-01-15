@@ -1451,6 +1451,18 @@ void asm_emit_addr(uint16_t size, uint16_t value, uint8_t type)
 }
 
 /*
+ * helper function to emit an immediate and do type checking
+ * only absolute resolutions will be allowed
+ */
+void asm_emit_imm(uint16_t value, uint8_t type)
+{	
+	if (type != 4 && asm_pass)
+		asm_error("must be absolute");
+	
+	asm_emit(value);
+}
+
+/*
  * helper function to evaluate an expression and emit the results
  * will handle relocation tracking and pass related stuff
  *
@@ -1465,7 +1477,6 @@ void asm_emit_expression(uint16_t size, char tok)
 	
 	asm_emit_addr(size, value, type);
 }
-
 
 /*
  * recursive function to do type-based definitions
@@ -1770,12 +1781,12 @@ uint8_t asm_arg(uint16_t *con, uint8_t eval) {
  * returns 0 if successful
  */
 char asm_doisr(struct instruct *isr) {
-	char prim;
-	uint8_t arg, reg, type;
+	uint8_t prim, arg, reg, shift, type;
 	uint16_t con, value;
 	
 	// primary select to 0
 	prim = 0;
+	shift = 0;
 	if (isr->type == BASIC) {
 		// basic ops
 		asm_emit(isr->opcode);
@@ -2254,18 +2265,25 @@ char asm_doisr(struct instruct *isr) {
 			asm_emit_addr(2, value, type);
 		}
 		
-		// standard a-(hl)
-		else if (arg < 8) {
-			// correct for carry flag
+		// standard a-(hl) and ixh-(iy+*)
+		else if (arg < 8 || (arg >= 23 || arg <= 28)) {
+			// grab any constants if they exist
+			if (arg == 25 || arg == 28) {
+				type = asm_evaluate(&value, con);
+				asm_expect(')');
+				prim++;
+			}
 			asm_expect(',');
+			
+			// correct for carry flag
 			reg = asm_arg(&con, 0);
 			if (reg == 16)
 				reg = 1;
 			
-			if (arg < 8) {
-				asm_emit(isr->opcode + (arg<<3) + reg);
+			// ix class dest?
+			if (arg >= 23 && arg <= 25) {
+				
 			}
-			
 			
 		} else
 			return 1;
