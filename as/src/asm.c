@@ -2394,6 +2394,35 @@ char asm_doisr(struct instruct *isr) {
 			} else
 				return 1;
 			
+		
+		}
+		
+		else if (arg >= 35 && arg <= 38) {
+			// special loads
+			asm_expect(',');
+			reg = asm_arg(&con, 1);
+			if (reg != 7)
+				return 1;
+			
+			case (arg) {
+				case 35:
+					asm_emit(0x02);
+					break;
+					
+				case 36:
+					asm_emit(0x12);
+					break;
+					
+				case 37:
+					asm_emit(0xED);
+					asm_emit(0x47);
+					break;
+					
+				case 38:
+					asm_emit(0xED);
+					asm_emit(0x4F);
+					break;
+			}
 		} else
 			return 1;
 	}
