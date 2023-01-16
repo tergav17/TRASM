@@ -2663,7 +2663,7 @@ void asm_meta()
 /*
  * perform assembly functions
  */
-void asm_assemble()
+void asm_assemble(char flagg, char flagd)
 {
 	char tok, type, next;
 	int ifdepth, trdepth;
@@ -2710,7 +2710,8 @@ void asm_assemble()
 			
 			if (!asm_pass) {
 				// first pass -> second pass
-				printf("first pass done, %d Z80 bytes used (%d:%d:%d:%d:%d)\n", (18 * sym_count) + (6 * loc_count) + (4 * glob_count) + (4 * ext_count) + ((2 + RELOC_SIZE) * reloc_count), sym_count, loc_count, glob_count, ext_count, reloc_count);
+				if (flagd)
+					printf("first pass done, %d Z80 bytes used (%d:%d:%d:%d:%d)\n", (18 * sym_count) + (6 * loc_count) + (4 * glob_count) + (4 * ext_count) + ((2 + RELOC_SIZE) * reloc_count), sym_count, loc_count, glob_count, ext_count, reloc_count);
 				asm_pass++;
 				loc_cnt = 0;
 				
@@ -2764,7 +2765,8 @@ void asm_assemble()
 				continue;
 			} else {
 				// emit relocation data and symbol stuff
-				printf("second pass done, %d Z80 bytes used (%d:%d:%d:%d:%d)\n", (18 * sym_count) + (6 * loc_count) + (4 * glob_count) + (4 * ext_count) + ((2 + RELOC_SIZE) * reloc_count), sym_count, loc_count, glob_count, ext_count, reloc_count);
+				if (flagd)
+					printf("second pass done, %d Z80 bytes used (%d:%d:%d:%d:%d)\n", (18 * sym_count) + (6 * loc_count) + (4 * glob_count) + (4 * ext_count) + ((2 + RELOC_SIZE) * reloc_count), sym_count, loc_count, glob_count, ext_count, reloc_count);
 				sio_append();
 				
 				// output metablock
@@ -2936,8 +2938,16 @@ void asm_assemble()
 				// it's a label
 				
 				// set the new symbol (if it is the first pass)
-				if (!asm_pass)
+				if (!asm_pass) {
 					asm_sym_update(sym_table, token_buf, asm_seg, NULL, asm_address);
+					
+					// auto globals?
+					if (flagg) {
+						sym = asm_sym_fetch(sym_table, token_buf);
+						asm_glob (sym);
+					}
+				}
+				
 				asm_token_read();
 			} else {
 				asm_error("unexpected symbol");

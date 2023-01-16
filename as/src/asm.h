@@ -62,6 +62,6 @@ struct tval {
 /* interface functions */
 
 void asm_reset();
-void asm_assemble();
+void asm_assemble(char flagg, char flagd);
 
 #endif
