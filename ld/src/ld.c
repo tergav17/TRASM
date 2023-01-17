@@ -19,20 +19,15 @@ char flags = 0;
 
 /* tables */
 struct object *obj_table;
+struct object *obj_tail;
+
 struct symbol *sym_table;
 
-/*
- * prints error message, and exits
- *
- * msg = error message
- */
-void error(char *msg, char *issue)
-{
-	printf("error: ");
-	printf(msg, issue);
-	printf("\n");
-	exit(1);
-}
+/* output binary stuff */
+FILE *aout;
+
+/* protoville */
+void error(char *msg, char *issue);
 
 /*
  * alloc memory and check for success
@@ -89,6 +84,25 @@ FILE *xfopen(char *fname, char *mode)
 	return f;
 }
 
+
+/*
+ * prints error message, and exits
+ *
+ * msg = error message
+ */
+void error(char *msg, char *issue)
+{
+	printf("error: ");
+	printf(msg, issue);
+	printf("\n");
+	// linking failed, remove a.out
+	if (aout) {
+		xfclose(aout);
+		remove("ldout.tmp");
+	}
+	exit(1);
+}
+
 /*
  * checks if strings are equal
  *
@@ -119,6 +133,17 @@ uint16_t rlend(uint8_t *b)
 	return b[0] + (b[1] << 8);
 }
 
+/*
+ * write little endian, write 2 bytes of little endian format
+ *
+ * value = value to write
+ * b = byte array
+ */
+void wlend(uint8_t *b, uint16_t value)
+{
+	*b = value & 0xFF;
+	*(++b) = value >> 8;
+}
 /*
  * computes a new address based on what segment it is in
  */
@@ -185,10 +210,17 @@ void chkobj(char *fname)
 	} else {
 		obj_table = obj;
 	}
+	obj_tail = obj;
 	
 	xfclose(f);
 }
 
+/*
+ * dumps out the symbol table of an object
+ * segment addresses are corrected to their final location
+ *
+ * obj = object to dump from
+ */
 void sdump(struct object *obj)
 {
 	FILE *f;
@@ -283,6 +315,8 @@ void cmbase()
 	struct object *curr;
 	uint16_t addr;
 	
+	aout = NULL;
+	
 	// addr starts at 16, right after the header
 	addr = 16;
 	
@@ -305,6 +339,46 @@ void cmbase()
 	}
 }
 
+/*
+ * emits the head of the output object
+ */
+void emhead()
+{
+	// magic number
+	header[0x00] = 0x18;
+	header[0x01] = 0x0E;
+	
+	// info byte
+	if (flagr) {
+		header[0x02] = 0b01;
+	} else {
+		header[0x02] = 0b11;
+	}
+	
+	// text origin always at 0
+	wlend(&header[0x03], 0x0000);
+	
+	// syscall jump vector unpatched
+	header[0x05] = 0xC3;
+	header[0x06] = 0x00;
+	header[0x07] = 0x00;
+	
+	// text entry is 0
+	wlend(&header[0x08], 0x0000);
+	
+	// text top
+	wlend(&header[0x0A], obj_tail->text_base + obj_tail->text_size);
+	
+	// data top
+	wlend(&header[0x0C], obj_tail->data_base + obj_tail->data_size);
+	
+	// bss top
+	wlend(&header[0x0E], obj_tail->bss_base + obj_tail->bss_size);
+
+	// write it out
+	fwrite(header, 16, 1, aout);
+}
+
 int main(int argc, char *argv[])
 {
 	int i, o;
@@ -324,12 +398,14 @@ int main(int argc, char *argv[])
 						
 					case 'r':
 						flagr++;
+						break;
 						
 					case 's':
 						flags++;
+						break;
 						
 					default:
-						error("unknown switch");
+						error("invalid option", NULL);
 						break;
 				}
 				o++;
@@ -388,5 +464,13 @@ int main(int argc, char *argv[])
 		}
 	}
 	
+	// being outputting linked object file
+	aout = xfopen("ldout.tmp", "wb");
 	
+	// emit the head
+	emhead();
+	
+	// close and move output file
+	xfclose(aout);
+	// TODO: move output file
 } 

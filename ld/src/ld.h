@@ -13,6 +13,7 @@
 
 /* structs */
 
+// object header contains general information able how and where data will be linked
 struct object {
 	char *fname; // file name
 	
@@ -30,11 +31,23 @@ struct object {
 	
 };
 
+// corrected symbol that will be used for resolving external symbols
 struct symbol {
 	uint8_t type;
 	char name[SYMBOL_NAME_SIZE+1];
 	uint16_t value;
 	struct symbol *next;
+};
+
+// relocation data for a segment
+struct reloc {
+	uint16_t value;
+
+	uint16_t offset;
+	uint16_t reloc_p;
+	uint8_t *reloc;
+	
+	struct reloc *next;
 };
 
 #endif
