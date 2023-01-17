@@ -5,7 +5,7 @@
 
 #define VERSION "1.0"
 
-char flagd = 0;
+char flagv = 0;
 char flagg = 0;
 
 int main(int argc, char *argv[])
@@ -20,8 +20,8 @@ int main(int argc, char *argv[])
 					flagg++;
 					break;
 					
-				case 'd':
-					flagd++;
+				case 'v':
+					flagv++;
 					break;
 					
 				default:
@@ -31,14 +31,14 @@ int main(int argc, char *argv[])
 	}
 	
 	// intro message
-	if (flagd)
+	if (flagv)
 		printf("TRASM cross assembler v%s\n", VERSION);
 	
 	// open up the source files
 	sio_open(argc, argv);
 	
 	// do the assembly
-	asm_assemble(flagg, flagd);
+	asm_assemble(flagg, flagv);
 	
 	// all done
 	sio_close();

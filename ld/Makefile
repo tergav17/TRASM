@@ -1,4 +1,4 @@
-TARGET = ../as_r
+TARGET = ../ld_r
 LIBS = 
 CC = gcc
 CFLAGS = -g -Wall

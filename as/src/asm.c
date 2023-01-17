@@ -61,12 +61,6 @@ struct extrn *ext_table;
 /* head of relocation table */
 struct reloc *reloc_table;
 
-/* since this is suppose to work like the assembly version, we will preallocate a heap */
-char heap[HEAP_SIZE];
-
-/* heap top */
-int heap_top;
-
 /* record keeping */
 uint16_t reloc_rec;
 uint16_t glob_rec;
@@ -120,20 +114,13 @@ void asm_error(char *msg)
 
 /*
  * allocates memory from the heap
+ * since no de-allocation is needed, data could just be appended to the heap
  *
  * size = number of bytes to allocate
  */
 void *asm_alloc(int size)
 {
-	int old_pointer;
-	
-	old_pointer = heap_top;
-	heap_top += size;
-	
-	if (heap_top >= HEAP_SIZE)
-		asm_error("out of memory");
-	
-	return (void *) &heap[old_pointer];
+	return (void *) malloc(size);
 }
 
 /*
@@ -156,11 +143,10 @@ struct reloc *asm_alloc_reloc()
 }
 
 /*
- * resets the top of the heap to the bottom
+ * resets all allocation stuff
  */
 void asm_reset()
 {	
-	heap_top = 0;
 	
 	sym_table = NULL;
 	loc_table = NULL;

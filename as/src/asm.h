@@ -6,8 +6,6 @@
 
 /* defines */
 
-#define HEAP_SIZE_KB 48
-#define HEAP_SIZE (1024 * HEAP_SIZE_KB)
 #define EXP_STACK_DEPTH 16
 
 #define TOKEN_BUF_SIZE 19
