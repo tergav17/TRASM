@@ -1,5 +1,6 @@
 ; Put string routine
 
+.text
 .globl puts
 puts:
 	ld	a,(hl)
@@ -8,3 +9,7 @@ puts:
 	; output a
 	inc	hl
 	jp	puts
+
+.bss
+.globl buffer
+	.defl byte[32] buffer

@@ -118,6 +118,27 @@ uint16_t rlend(uint8_t *b)
 }
 
 /*
+ * computes a new address based on what segment it is in
+ */
+uint16_t cmseg(uint16_t addr, struct object *obj)
+{
+	printf("starting at %04x\n", addr);
+	// relocate to address 0
+	addr -= obj->org + 16;
+	
+	// text, data, or bss?
+	if (addr >= obj->text_size + obj->data_size) {
+		addr -= obj->text_size + obj->data_size;
+		return addr + obj->bss_base;
+	} else if (addr >= obj->text_size) {
+		addr -= obj->text_size;
+		return addr + obj->data_base;
+	} else {
+		return addr + obj->text_base;
+	}
+}
+
+/*
  * checks in an object file and adds it to the table
  *
  * fname = path to object file
@@ -178,7 +199,7 @@ void sdump(struct object *obj)
 	fread(header, 16, 1, f);
 	
 	// navigate to start of symbol table
-	xfseek(f, rlend(&header[0x0E]), SEEK_SET);
+	xfseek(f, rlend(&header[0x0C]), SEEK_SET);
 	fread(tmp, 2, 1, f);
 	xfseek(f, rlend(tmp), SEEK_CUR);
 	fread(tmp, 2, 1, f);
@@ -198,6 +219,8 @@ void sdump(struct object *obj)
 		fread(tmp, 3, 1, f);
 		sym->type = tmp[0];
 		sym->value = rlend(tmp+1);
+		if (sym->type < 4)
+			sym->value = cmseg(sym->value, obj);
 		
 		// check for issues in the symbol
 		if (!sym->type)

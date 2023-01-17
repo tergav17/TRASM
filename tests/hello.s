@@ -8,4 +8,5 @@
 	ret
 
 .data
+.globl hello_s
 	.defl byte hello_s "Hello, world\n\0"
