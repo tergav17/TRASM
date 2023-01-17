@@ -8,14 +8,15 @@
 
 /* defines */
 
-#define SYMBOL_NAME_SIZE 9
+#define SYMBOL_NAME_SIZE 8
+#define SYMBOL_REC_SIZE SYMBOL_NAME_SIZE+3
 
 /* structs */
 
 struct object {
 	char *fname; // file name
 	
-	uint16_t obj_base; // intial object base
+	uint16_t org; // object address space origin
 	
 	uint16_t text_size; // segment sizes
 	uint16_t data_size;
@@ -31,7 +32,7 @@ struct object {
 
 struct symbol {
 	uint8_t type;
-	char name[SYMBOL_NAME_SIZE];
+	char name[SYMBOL_NAME_SIZE+1];
 	uint16_t value;
 	struct symbol *next;
 };
