@@ -2333,8 +2333,6 @@ char asm_doisr(struct instruct *isr) {
 			if (arg == 6 && reg == 6)
 				return 1;
 			
-			printf("emitting %d,%d!\n", arg, reg);
-			
 			if (arg < 8 && reg < 8) {
 				// reg8->reg8
 				asm_emit(0x40 + (arg<<3) + reg);
