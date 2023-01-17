@@ -14,6 +14,8 @@ uint8_t tmp[SYMBOL_NAME_SIZE];
 
 /* flags */
 char flagv = 0;
+char flagr = 0;
+char flags = 0;
 
 /* tables */
 struct object *obj_table;
@@ -122,7 +124,6 @@ uint16_t rlend(uint8_t *b)
  */
 uint16_t cmseg(uint16_t addr, struct object *obj)
 {
-	printf("starting at %04x\n", addr);
 	// relocate to address 0
 	addr -= obj->org + 16;
 	
@@ -192,6 +193,7 @@ void sdump(struct object *obj)
 {
 	FILE *f;
 	struct symbol *sym, *curr;
+	uint16_t value;
 	int nsym;
 	
 	// read the header in
@@ -218,16 +220,37 @@ void sdump(struct object *obj)
 		// read in type and value
 		fread(tmp, 3, 1, f);
 		sym->type = tmp[0];
-		sym->value = rlend(tmp+1);
-		if (sym->type < 4)
-			sym->value = cmseg(sym->value, obj);
+		value = rlend(tmp+1);
 		
-		// check for issues in the symbol
-		if (!sym->type)
-			error("symbol %s is undefined", sym->name);
-		
-		if (sym->type > 4)
-			error("symbol %s is external", sym->name);
+		// fix segments
+		if (sym->type != 4) {
+			// relocate to address 0
+			value -= obj->org + 16;
+			
+			switch (sym->type) {
+				
+				case 0:
+					error("symbol %s is undefined", sym->name);
+				
+				case 1:
+					value = value + obj->text_base;
+					break;
+					
+				case 2:
+					value -= obj->text_size;
+					value +=  obj->data_base;
+					break;
+					
+				case 3:
+					value -= obj->text_size + obj->data_size;
+					value += obj->bss_base;
+					break;
+					
+				default:
+					error("symbol %s is external", sym->name);
+			}
+		}
+		sym->value = value;
 		
 		// add it to table
 		if (sym_table) {
@@ -284,21 +307,32 @@ void cmbase()
 
 int main(int argc, char *argv[])
 {
-	int i;
+	int i, o;
 	struct object *curr;
 	struct symbol *scurr;
 	
 	// flag switch
 	for (i = 1; i < argc; i++) {
 		if (argv[i][0] == '-') {
-			switch (argv[i][1]) {
+			o = 1;
+			while (argv[i][o]) {
+				switch (argv[i][o]) {
 					
-				case 'v':
-					flagv++;
-					break;
-					
-				default:
-					break;
+					case 'v':
+						flagv++;
+						break;
+						
+					case 'r':
+						flagr++;
+						
+					case 's':
+						flags++;
+						
+					default:
+						error("unknown switch");
+						break;
+				}
+				o++;
 			}
 		}
 	}
@@ -333,7 +367,24 @@ int main(int argc, char *argv[])
 	if (flagv) {
 		printf("symbol type/value:\n");
 		for (scurr = sym_table; scurr; scurr = scurr->next) {
-			printf("	%-8s %d:%04x\n", scurr->name, scurr->type, scurr->value);
+			printf("	%-8s: %04x ", scurr->name, scurr->value);
+			switch(scurr->type) {
+				case 1:
+					printf("text\n");
+					break;
+					
+				case 2:
+					printf("data\n");
+					break;
+					
+				case 3:
+					printf("bss\n");
+					break;
+					
+				default:
+					printf("abs\n");
+					break;
+			}
 		}
 	}
 	
