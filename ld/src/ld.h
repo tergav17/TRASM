@@ -41,10 +41,9 @@ struct symbol {
 
 // relocation data for a segment
 struct reloc {
-	uint16_t value;
-
 	uint16_t offset;
-	uint16_t reloc_p;
+	uint16_t skip;
+	uint16_t index;
 	uint8_t *reloc;
 	
 	struct reloc *next;

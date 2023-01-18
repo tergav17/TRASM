@@ -392,15 +392,15 @@ int main(int argc, char *argv[])
 			while (argv[i][o]) {
 				switch (argv[i][o]) {
 					
-					case 'v':
+					case 'v': // verbose output
 						flagv++;
 						break;
 						
-					case 'r':
+					case 'r': // output unresolved externals for more linking
 						flagr++;
 						break;
 						
-					case 's':
+					case 's': // squash output, no symbol table outputted
 						flags++;
 						break;
 						
@@ -413,7 +413,12 @@ int main(int argc, char *argv[])
 		}
 	}
 	
-		// intro message
+	// check for invalid configurations
+	if (flags && flagr)
+		error("invalid configuration", NULL);
+	
+	
+	// intro message
 	if (flagv)
 		printf("TRASM link editor v%s\n", VERSION);
 	
@@ -472,5 +477,5 @@ int main(int argc, char *argv[])
 	
 	// close and move output file
 	xfclose(aout);
-	// TODO: move output file
+	rename("ldout.tmp", "a.out");
 } 
