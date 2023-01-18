@@ -308,6 +308,23 @@ void sdump(struct object *obj)
 }
 
 /*
+ * fetches a symbol based on name
+ *
+ * name = symbol name
+ * returns symbol, or NULL if not found
+ */
+struct symbol *sfetch(char *name)
+{
+	struct symbol *curr;
+	
+	for (curr = sym_table, curr, curr = curr->next)
+		if (sequ(curr->name, name))
+			break;
+	
+	return curr;
+}
+
+/*
  * compute the final bases for each segment in all objects
  */
 void cmbase()
