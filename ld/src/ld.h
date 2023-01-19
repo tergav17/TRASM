@@ -27,6 +27,7 @@ struct object {
 	uint16_t data_base;
 	uint16_t bss_base;
 	
+	struct reloc *reloc; // relocations in object
 	struct object *next; // next object
 	
 };
@@ -48,5 +49,9 @@ struct reloc {
 	
 	struct reloc *next;
 };
+
+struct extrn {
+	char name[SYMBOL_NAME_SIZE+1];
+}
 
 #endif

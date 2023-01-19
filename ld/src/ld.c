@@ -492,6 +492,9 @@ int main(int argc, char *argv[])
 	// emit the head
 	emhead();
 	
+	// emit the binary
+	embin();
+	
 	// close and move output file
 	xfclose(aout);
 	rename("ldout.tmp", "a.out");
