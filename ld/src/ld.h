@@ -8,8 +8,10 @@
 
 /* defines */
 
-#define SYMBOL_NAME_SIZE 8
-#define SYMBOL_REC_SIZE SYMBOL_NAME_SIZE+3
+#define SYMBOL_NAME_SIZE 9
+#define SYMBOL_REC_SIZE (SYMBOL_NAME_SIZE-1)+3
+
+#define RELOC_SIZE 8
 
 /* structs */
 
@@ -40,18 +42,18 @@ struct symbol {
 	struct symbol *next;
 };
 
-// relocation data for a segment
+// relocation element
 struct reloc {
-	uint16_t offset;
-	uint16_t skip;
-	uint16_t index;
-	uint8_t *reloc;
-	
+	uint8_t addr[RELOC_SIZE];
 	struct reloc *next;
 };
 
 struct extrn {
-	char name[SYMBOL_NAME_SIZE+1];
+	char name[SYMBOL_NAME_SIZE]; // extern reference
+	
+	uint16_t value; // symbol resolution stuff
+	uint8_t type;
+	struct object *source;
 }
 
 #endif

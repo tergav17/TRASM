@@ -11,6 +11,8 @@
 #define TOKEN_BUF_SIZE 19
 #define SYMBOL_NAME_SIZE 9
 
+#define RELOC_SIZE 8
+
 /* structs */
 
 /* Z80 size = 18 bytes */
@@ -30,8 +32,6 @@ struct local {
 	uint16_t value;
 	struct local *next;
 };
-
-#define RELOC_SIZE 8
 
 /* Z80 size = RELOC_SIZE + 2 bytes */
 struct reloc {

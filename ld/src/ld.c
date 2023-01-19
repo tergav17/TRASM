@@ -10,7 +10,7 @@
 
 /* buffers */
 uint8_t header[16];
-uint8_t tmp[SYMBOL_NAME_SIZE];
+uint8_t tmp[SYMBOL_NAME_SIZE+1];
 
 /* flags */
 char flagv = 0;
@@ -144,6 +144,87 @@ void wlend(uint8_t *b, uint16_t value)
 	*b = value & 0xFF;
 	*(++b) = value >> 8;
 }
+
+/*
+ * insert an address into a reloc table
+ *
+ * tab = relocation table
+ * target = address to add
+ */
+void ireloc(struct reloc *tab, uint16_t target)
+{
+	struct reloc *curr;
+	uint16_t last, diff;
+	uint8_t next, tmp;
+	int i;
+	
+	// begin at table start
+	curr = tab;
+	last = 0;
+	i = 0;
+	next = 255;
+	// find end of table
+	while (curr->addr[i] != 255 && next == 255) {
+		
+		if (target <= curr->addr[i] + last) {
+			diff = target - last;
+			next = curr->addr[i] - diff;
+			curr->addr[i] = diff;
+		}
+		
+		last += curr->addr[i];
+		i++;
+		
+		// advance to next record
+		if (i >= RELOC_SIZE) {
+			curr = curr->next;
+			i = 0;
+		}
+	}
+	
+	// do forwarding if needed
+	while (curr->addr[i] != 255) {
+		
+		// swap
+		tmp = curr->addr[i];
+		curr->addr[i] = next;
+		next = tmp;
+		
+		last += curr->addr[i];
+		i++;
+		
+		// advance to next record
+		if (i >= RELOC_SIZE) {
+			curr = curr->next;
+			i = 0;
+		}
+	}
+	
+	// diff the difference
+	if (next == 255) diff = target - last;
+	else diff = next;
+	do {
+		// calculate next byte to add
+		if (diff < 254) {
+			next = diff;
+			diff = 0;
+		} else {
+			diff = diff - 254;
+			next = 254;
+		}
+		
+		// add it to the reloc table, extending a record if needed
+		curr->addr[i++] = next;
+		if (i >= RELOC_SIZE) {
+			i = 0;
+			curr->next = asm_alloc_reloc();
+			curr = curr->next;
+		}
+		// record keeping
+		if (tab == reloc_table) reloc_rec++;
+	} while (next == 254);
+}
+
 /*
  * computes a new address based on what segment it is in
  */
@@ -213,115 +294,6 @@ void chkobj(char *fname)
 	obj_tail = obj;
 	
 	xfclose(f);
-}
-
-/*
- * dumps out the symbol table of an object
- * segment addresses are corrected to their final location
- *
- * obj = object to dump from
- */
-void sdump(struct object *obj)
-{
-	FILE *f;
-	struct symbol *sym, *curr;
-	uint16_t value;
-	int nsym;
-	
-	// read the header in
-	f = xfopen(obj->fname, "rb");
-	fread(header, 16, 1, f);
-	
-	// navigate to start of symbol table
-	xfseek(f, rlend(&header[0x0C]), SEEK_SET);
-	fread(tmp, 2, 1, f);
-	xfseek(f, rlend(tmp), SEEK_CUR);
-	fread(tmp, 2, 1, f);
-	nsym = rlend(tmp);
-	nsym /= SYMBOL_REC_SIZE;
-	
-	// read in all symbols
-	while (nsym--) {
-		sym = (struct symbol *) xalloc(sizeof(struct symbol));
-		sym->next = NULL;
-		
-		// read in name
-		fread(sym->name, 8, 1, f);
-		sym->name[SYMBOL_NAME_SIZE] = 0;
-		
-		// read in type and value
-		fread(tmp, 3, 1, f);
-		sym->type = tmp[0];
-		value = rlend(tmp+1);
-		
-		// fix segments
-		if (sym->type != 4) {
-			// relocate to address 0
-			value -= obj->org + 16;
-			
-			switch (sym->type) {
-				
-				case 0:
-					error("symbol %s is undefined", sym->name);
-				
-				case 1:
-					value = value + obj->text_base;
-					break;
-					
-				case 2:
-					value -= obj->text_size;
-					value +=  obj->data_base;
-					break;
-					
-				case 3:
-					value -= obj->text_size + obj->data_size;
-					value += obj->bss_base;
-					break;
-					
-				default:
-					error("symbol %s is external", sym->name);
-			}
-		}
-		sym->value = value;
-		
-		// add it to table
-		if (sym_table) {
-			curr = sym_table;
-			while (1) {
-				// error out if symbol already exists
-				if (sequ(curr->name, sym->name))
-					error("symbol %s already defined", sym->name);
-				
-				if (curr->next) {
-					curr = curr->next;
-				} else  {
-					curr->next = sym;
-					break;
-				}
-			}
-		} else {
-			sym_table = sym;
-		}
-	}
-	
-	xfclose(f);
-}
-
-/*
- * fetches a symbol based on name
- *
- * name = symbol name
- * returns symbol, or NULL if not found
- */
-struct symbol *sfetch(char *name)
-{
-	struct symbol *curr;
-	
-	for (curr = sym_table, curr, curr = curr->next)
-		if (sequ(curr->name, name))
-			break;
-	
-	return curr;
 }
 
 /*
@@ -486,6 +458,7 @@ int main(int argc, char *argv[])
 		}
 	}
 	
+	/*
 	// being outputting linked object file
 	aout = xfopen("ldout.tmp", "wb");
 	
@@ -498,4 +471,5 @@ int main(int argc, char *argv[])
 	// close and move output file
 	xfclose(aout);
 	rename("ldout.tmp", "a.out");
+	*/
 } 
