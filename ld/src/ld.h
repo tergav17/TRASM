@@ -18,6 +18,7 @@
 // object header contains general information able how and where data will be linked
 struct object {
 	char *fname; // file name
+	uint8_t index; // record index for archives (0 = direct object)
 	
 	uint16_t org; // object address space origin
 	
@@ -29,17 +30,8 @@ struct object {
 	uint16_t data_base;
 	uint16_t bss_base;
 	
-	struct reloc *reloc; // relocations in object
 	struct object *next; // next object
 	
-};
-
-// corrected symbol that will be used for resolving external symbols
-struct symbol {
-	uint8_t type;
-	char name[SYMBOL_NAME_SIZE+1];
-	uint16_t value;
-	struct symbol *next;
 };
 
 // relocation element
@@ -54,6 +46,8 @@ struct extrn {
 	uint16_t value; // symbol resolution stuff
 	uint8_t type;
 	struct object *source;
-}
+	
+	struct reloc *reloc; // addresses that need relocating
+};
 
 #endif

@@ -21,7 +21,9 @@ char flags = 0;
 struct object *obj_table;
 struct object *obj_tail;
 
-struct symbol *sym_table;
+struct reloc *reloc_table;
+
+struct extrn *ext_table;
 
 /* output binary stuff */
 FILE *aout;
@@ -119,6 +121,26 @@ char sequ(char *a, char *b) {
 	}
 	if (*a != *b)
 		return 0;
+	return 1;
+}
+
+/*
+ * checks if two arrays are equal
+ *
+ * a = pointer to array a
+ * b = pointer to array b
+ * len = length in bytes
+ * returns 1 if equal
+ */
+char aequ(char *a, char *b, int len)
+{
+	while (len--) {
+		if (*a != *b)
+			return 0;
+		a++;
+		b++;
+	}
+	
 	return 1;
 }
 
@@ -249,8 +271,9 @@ uint16_t cmseg(uint16_t addr, struct object *obj)
  * checks in an object file and adds it to the table
  *
  * fname = path to object file
+ * index = record index if archive
  */
-void chkobj(char *fname)
+void chkobj(char *fname, uint8_t index)
 {
 	FILE *f;
 	struct object *obj, *curr;
@@ -258,11 +281,20 @@ void chkobj(char *fname)
 	// alloc object
 	obj = (struct object *) xalloc(sizeof(struct object));
 	obj->next = NULL;
+	obj->index = index;
 	obj->fname = fname;
 	
 	// read the header in
 	f = xfopen(fname, "rb");
-	fread(header, 16, 1, f);
+	fread(header, 8, 1, f);
+	
+	// check if it is an archive or not
+	if (aequ((char *) header, "!<arch>\n", 8) {
+	
+	} else {
+		// read in the rest of the header
+		fread(header+8, 8, 1, f);
+	}
 	
 	// start doing checking
 	if (header[0x00] != 0x18 || header[0x01] != 0x0E)
@@ -372,7 +404,6 @@ int main(int argc, char *argv[])
 {
 	int i, o;
 	struct object *curr;
-	struct symbol *scurr;
 	
 	// flag switch
 	for (i = 1; i < argc; i++) {
@@ -425,36 +456,6 @@ int main(int argc, char *argv[])
 		printf("object file base/size:\n");
 		for (curr = obj_table; curr; curr = curr->next) {
 			printf("	text: %04x:%04x, data: %04x:%04x, bss: %04x:%04x <- %s\n", curr->text_base, curr->text_size, curr->data_base, curr->data_size, curr->bss_base, curr->bss_size, curr->fname);
-		}
-	}
-	
-	// dump symbols
-	for (curr = obj_table; curr; curr = curr->next) {
-		sdump(curr);
-	}
-	
-	// print out symbols
-	if (flagv) {
-		printf("symbol type/value:\n");
-		for (scurr = sym_table; scurr; scurr = scurr->next) {
-			printf("	%-8s: %04x ", scurr->name, scurr->value);
-			switch(scurr->type) {
-				case 1:
-					printf("text\n");
-					break;
-					
-				case 2:
-					printf("data\n");
-					break;
-					
-				case 3:
-					printf("bss\n");
-					break;
-					
-				default:
-					printf("abs\n");
-					break;
-			}
 		}
 	}
 	
