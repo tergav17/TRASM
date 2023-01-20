@@ -10,7 +10,7 @@
 
 /* buffers */
 uint8_t header[16];
-uint8_t tmp[SYMBOL_NAME_SIZE+1];
+uint8_t tmp[16];
 
 /* flags */
 char flagv = 0;
@@ -24,6 +24,10 @@ struct object *obj_tail;
 struct reloc *reloc_table;
 
 struct extrn *ext_table;
+struct extrn *ext_tail;
+
+struct archive *arc_table;
+struct archive *arc_tail;
 
 /* output binary stuff */
 FILE *aout;
@@ -268,6 +272,75 @@ uint16_t cmseg(uint16_t addr, struct object *obj)
 }
 
 /*
+ * adds an object to the object table
+ *
+ * new = new object
+ */
+void addobj(struct object *new)
+{	
+	// add it to the table
+	if (obj_table) {
+		obj_tail->next = new;
+	} else {
+		obj_table = new;
+	}
+	obj_tail = new;
+}
+
+/*
+ * adds an external to the external table
+ *
+ * new = new external
+ */
+void addext(struct extrn *new)
+{
+	// add it to the table
+	if (ext_table) {
+		ext_tail->next = new;
+	} else {
+		ext_table = new;
+	}
+	ext_tail = new;
+}
+
+/*
+ * adds an archive to the archive table
+ *
+ * new = new archive
+ */
+void addarc(char *fname)
+{
+	struct archive *new;
+	new = (struct archive *) xalloc(sizeof(struct archive));
+	
+	// add it to the table
+	if (arc_table) {
+		arc_tail->next = new;
+	} else {
+		arc_table = new;
+	}
+	arc_tail = new;
+}
+
+
+/*
+ * checks if a file is an archive or not
+ */
+char isarch(char *fname)
+{
+	FILE *f;
+	
+	f = xfopen(fname, "rb");
+	fread(header, 8, 1, f);
+	f = xfclose(f);
+	
+	if (aequ((char *) header, "!<arch>\n", 8) {
+		return 1;
+	}
+	return 0;
+}
+
+/*
  * checks in an object file and adds it to the table
  *
  * fname = path to object file
@@ -276,12 +349,12 @@ uint16_t cmseg(uint16_t addr, struct object *obj)
 void chkobj(char *fname, uint8_t index)
 {
 	FILE *f;
-	struct object *obj, *curr;
+	struct object *obj;
+	int offset;
 	
 	// alloc object
 	obj = (struct object *) xalloc(sizeof(struct object));
 	obj->next = NULL;
-	obj->index = index;
 	obj->fname = fname;
 	
 	// read the header in
@@ -290,11 +363,32 @@ void chkobj(char *fname, uint8_t index)
 	
 	// check if it is an archive or not
 	if (aequ((char *) header, "!<arch>\n", 8) {
-	
+		while (index) {
+			// skip to next record
+			xfseek(f, 48, SEEK_CUR);
+			
+			// read in file size
+			fread(tmp, 10, 1, f);
+			offset = atoi(tmp);
+			
+			// on to next record
+			// on the real system, this will need to be broken up for >32kb files
+			xfseek(f, offset + 2, SEEK_CUR);
+			index--;
+		}
+		
+		// seek at start of record
+		xfseek(f, 60, SEEK_CUR);
+		
+		// read in header
+		fread(header, 16, 1, f);
 	} else {
 		// read in the rest of the header
 		fread(header+8, 8, 1, f);
 	}
+	
+	// set offset
+	obj->offset = ftell(f) - 16;
 	
 	// start doing checking
 	if (header[0x00] != 0x18 || header[0x01] != 0x0E)
@@ -314,16 +408,8 @@ void chkobj(char *fname, uint8_t index)
 	// reduce text by 16 due to the removal of header
 	obj->text_size -= 16;
 	
-	// add it to the table
-	if (obj_table) {
-		curr = obj_table;
-		while (curr->next)
-			curr = curr->next;
-		curr->next = obj;
-	} else {
-		obj_table = obj;
-	}
-	obj_tail = obj;
+	// add to object table
+	addobj(obj);
 	
 	xfclose(f);
 }

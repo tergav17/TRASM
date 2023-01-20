@@ -18,7 +18,7 @@
 // object header contains general information able how and where data will be linked
 struct object {
 	char *fname; // file name
-	uint8_t index; // record index for archives (0 = direct object)
+	size_t offset; // offset of record
 	
 	uint16_t org; // object address space origin
 	
@@ -34,6 +34,11 @@ struct object {
 	
 };
 
+struct archive {
+	char *fname;
+	struct archive *next;
+}
+
 // relocation element
 struct reloc {
 	uint8_t addr[RELOC_SIZE];
@@ -48,6 +53,8 @@ struct extrn {
 	struct object *source;
 	
 	struct reloc *reloc; // addresses that need relocating
+	
+	struct extrn *next; // next external
 };
 
 #endif
