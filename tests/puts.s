@@ -6,7 +6,7 @@ puts:
 	ld	a,(hl)
 	or	a
 	ret	z
-	; output a
+	out	(0),a
 	inc	hl
 	jp	puts
 

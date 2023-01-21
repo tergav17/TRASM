@@ -172,12 +172,31 @@ void wlend(uint8_t *b, uint16_t value)
 }
 
 /*
+ * creates a new reloc struct and inits it
+ *
+ * returns new object
+ */
+struct reloc *nreloc()
+{
+	struct reloc *new;
+	int i;
+	
+	// allocate start of relocation table
+	new = (struct reloc *) xalloc(sizeof(struct reloc));
+	for (i = 0; i < RELOC_SIZE; i++) new->addr[i] = 255;
+	new->next = NULL;
+	
+	return new;
+}
+
+
+/*
  * insert an address into a reloc table
  *
  * tab = relocation table
  * target = address to add
  */
-void ireloc(struct reloc *tab, uint16_t target)
+void reloci(struct reloc *tab, uint16_t target)
 {
 	struct reloc *curr;
 	uint16_t last, diff;
@@ -243,11 +262,9 @@ void ireloc(struct reloc *tab, uint16_t target)
 		curr->addr[i++] = next;
 		if (i >= RELOC_SIZE) {
 			i = 0;
-			curr->next = asm_alloc_reloc();
+			curr->next = nreloc();
 			curr = curr->next;
 		}
-		// record keeping
-		if (tab == reloc_table) reloc_rec++;
 	} while (next == 254);
 }
 
@@ -332,9 +349,9 @@ char isarch(char *fname)
 	
 	f = xfopen(fname, "rb");
 	fread(header, 8, 1, f);
-	f = xfclose(f);
+	xfclose(f);
 	
-	if (aequ((char *) header, "!<arch>\n", 8) {
+	if (aequ((char *) header, "!<arch>\n", 8)) {
 		return 1;
 	}
 	return 0;
@@ -362,14 +379,14 @@ void chkobj(char *fname, uint8_t index)
 	fread(header, 8, 1, f);
 	
 	// check if it is an archive or not
-	if (aequ((char *) header, "!<arch>\n", 8) {
+	if (aequ((char *) header, "!<arch>\n", 8)) {
 		while (index) {
 			// skip to next record
 			xfseek(f, 48, SEEK_CUR);
 			
 			// read in file size
 			fread(tmp, 10, 1, f);
-			offset = atoi(tmp);
+			offset = atoi((char *) tmp);
 			
 			// on to next record
 			// on the real system, this will need to be broken up for >32kb files
@@ -410,6 +427,9 @@ void chkobj(char *fname, uint8_t index)
 	
 	// add to object table
 	addobj(obj);
+	
+	// next we will dump out the external symbols
+	// TODO
 	
 	xfclose(f);
 }
@@ -528,10 +548,16 @@ int main(int argc, char *argv[])
 	if (flagv)
 		printf("TRASM link editor v%s\n", VERSION);
 	
-	// check in all object files
+	// check in all object files (but not archives)
 	for (i = 1; i < argc; i++) {
-		if (argv[i][0] != '-')
-			chkobj(argv[i]);
+		if (argv[i][0] != '-') {
+			if (isarch(argv[i])) {
+				// add it to the archive table for later
+				addarc(argv[i]);
+			} else {
+				chkobj(argv[i], 0);
+			}
+		}
 	}
 	
 	// calculate bases

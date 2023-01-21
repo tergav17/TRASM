@@ -37,7 +37,7 @@ struct object {
 struct archive {
 	char *fname;
 	struct archive *next;
-}
+};
 
 // relocation element
 struct reloc {
