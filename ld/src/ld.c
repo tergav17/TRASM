@@ -24,7 +24,6 @@ struct object *obj_tail;
 struct reloc *reloc_table;
 
 struct extrn *ext_table;
-struct extrn *ext_tail;
 
 struct archive *arc_table;
 struct archive *arc_tail;
@@ -305,22 +304,6 @@ void addobj(struct object *new)
 }
 
 /*
- * adds an external to the external table
- *
- * new = new external
- */
-void addext(struct extrn *new)
-{
-	// add it to the table
-	if (ext_table) {
-		ext_tail->next = new;
-	} else {
-		ext_table = new;
-	}
-	ext_tail = new;
-}
-
-/*
  * adds an archive to the archive table
  *
  * new = new archive
@@ -355,6 +338,17 @@ char isarch(char *fname)
 		return 1;
 	}
 	return 0;
+}
+
+/*
+ * skips over a relocation or symbol seg
+ */
+void skipsg(FILE *f)
+{
+	uint8_t b[2];
+	
+	fread(b, 2, 1, f);
+	xfseek(f, rlend(b), SEEK_CUR);
 }
 
 /*
@@ -429,7 +423,18 @@ void chkobj(char *fname, uint8_t index)
 	addobj(obj);
 	
 	// next we will dump out the external symbols
-	// TODO
+	xfseek(f, rlend(&header[0x0E]) - 16, SEEK_CUR);
+	
+	// skip over relocations and symbols
+	skipsg(f);
+	skipsg(f);
+	
+	// dump everything out
+	while (fread(tmp, SYMBOL_NAME_SIZE-1, 1, f) > 0 && tmp[0]) {
+		tmp[SYMBOL_NAME_SIZE] = 0;
+		printf("	extern: %s\n", tmp);
+		skipsg(f);
+	}
 	
 	xfclose(f);
 }

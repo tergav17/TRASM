@@ -12,6 +12,7 @@
 #define SYMBOL_REC_SIZE (SYMBOL_NAME_SIZE-1)+3
 
 #define RELOC_SIZE 8
+#define PATCH_SIZE 4
 
 /* structs */
 
@@ -45,14 +46,20 @@ struct reloc {
 	struct reloc *next;
 };
 
+// patch element
+struct patch {
+	uint16_t addr[PATCH_SIZE];
+	struct patch *next;
+};
+
 struct extrn {
 	char name[SYMBOL_NAME_SIZE]; // extern reference
 	
-	uint16_t value; // symbol resolution stuff
+	uint16_t value; // symbol patch stuff
 	uint8_t type;
 	struct object *source;
 	
-	struct reloc *reloc; // addresses that need relocating
+	struct patch *patch; // addresses that need patching
 	
 	struct extrn *next; // next external
 };

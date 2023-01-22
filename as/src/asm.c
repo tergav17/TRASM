@@ -71,6 +71,7 @@ int loc_count;
 int glob_count;
 int ext_count;
 int reloc_count;
+int patch_count;
 
 /*
  * checks if a string is equal
@@ -142,6 +143,20 @@ struct reloc *asm_alloc_reloc()
 	return new;
 }
 
+struct patch *asm_alloc_patch()
+{
+	struct patch *new;
+	int i;
+	
+	// allocate patch struct and init
+	patch_count++;
+	new = (struct patch *) asm_alloc(sizeof(struct patch));
+	for (i = 0; i < RELOC_SIZE; i++) new->addr[i] = 0;
+	new->next = NULL;
+	
+	return new;
+}
+
 /*
  * resets all allocation stuff
  */
@@ -151,6 +166,7 @@ void asm_reset()
 	sym_table = NULL;
 	loc_table = NULL;
 	glob_table = NULL;
+	ext_table = NULL;
 	
 	// allocate empty table
 	sym_table = (struct symbol *) asm_alloc(sizeof(struct symbol));
@@ -164,6 +180,7 @@ void asm_reset()
 	glob_count = 0;
 	ext_count = 0;
 	reloc_count = 1;
+	patch_count = 0;
 }
 
 /*
@@ -641,7 +658,8 @@ void asm_extern(char *name)
 	// create extern
 	curr = (struct extrn *) asm_alloc(sizeof(struct extrn));
 	curr->symbol = sym;
-	curr->reloc = asm_alloc_reloc();
+	curr->textp = asm_alloc_patch();
+	curr->datap = asm_alloc_patch();
 	curr->next = NULL;
 	
 	// add it to tabl 
@@ -754,26 +772,34 @@ void asm_reloc(struct reloc *tab, uint16_t target)
 		// record keeping
 		if (tab == reloc_table) reloc_rec++;
 	} while (next == 254);
+}
+
+/*
+ * adds an address to a patch table
+ * addresses must be added in order
+ *
+ * tab = patch table
+ * addr = address to add
+ */
+void asm_patch(struct patch *tab, uint16_t addr)
+{
+	int i;
 	
-	/*
-	// begin at table start
-	curr = tab;
-	last = 0;
-	i = 0;
-	// dump
-	while (curr->addr[i] != 255) {
-		// forwarding section
-		last += curr->addr[i];
-		
-		if (curr->addr[i] != 254) {
-			printf("table has: %04X (%02X)\n", last, curr->addr[i]);
-		} else {
-			printf("table has: ---- (%02X)\n", curr->addr[i]);
+	// skip until we find the end of the table
+	while (tab->next && tab->addr[PATCH_SIZE-1])
+		tab = tab->next;
+	
+	// search for an empty slot
+	for (i = 0; i < PATCH_SIZE; i++) {
+		if (!tab->addr[i]) {
+			tab->addr[i] = addr;
+			return;
 		}
-		
-		i++;
 	}
-	*/
+	
+	// no empty slots, add to the table
+	tab->next = asm_alloc_patch();
+	tab->next->addr[0] = addr;
 }
 
 /*
@@ -1392,6 +1418,7 @@ void asm_fill(uint16_t size)
 void asm_emit_addr(uint16_t size, uint16_t value, uint8_t type)
 {
 	struct extrn *ext;
+	uint16_t rel;
 	
 	if (!type) {
 		// if we are on the second pass, error out
@@ -1411,7 +1438,11 @@ void asm_emit_addr(uint16_t size, uint16_t value, uint8_t type)
 		
 		if (type > 0 && type < 4) {
 			// emit a relative address
-			asm_emit((value - asm_address) - 1);
+			rel = (value - asm_address) - 1;
+			if (rel < 0x80 || rel > 0xFF7F)
+				asm_emit(rel);
+			else
+				asm_error("relative out of bounds");
 		} else {
 			asm_emit(value);
 		}
@@ -1428,7 +1459,18 @@ void asm_emit_addr(uint16_t size, uint16_t value, uint8_t type)
 			ext = asm_extern_fetch(type);
 			if (!ext)
 				asm_error("cannot resolve external");
-			asm_reloc(ext->reloc, asm_address);
+			switch (asm_seg) {
+				case 1:
+					asm_patch(ext->textp, asm_address);
+					break;
+					
+				case 2:
+					asm_patch(ext->datap, asm_address);
+					break;
+					
+				default:
+					asm_error("external in invalid segment");
+			}
 		}
 		
 		// here we output a word
@@ -2592,8 +2634,10 @@ void asm_fix_seg()
 void asm_meta()
 {
 	int i;
+	uint16_t count;
 	struct global *glob;
 	struct extrn *ext;
+	struct patch *pat;
 	
 	// output size of reloc records
 	reloc_rec++;
@@ -2629,13 +2673,51 @@ void asm_meta()
 	ext = ext_table;
 	while (ext) {
 		// size-1 bytes for the name
-		i = 0;
-		while (i < SYMBOL_NAME_SIZE-1) {
+		for (i = 0; i < SYMBOL_NAME_SIZE-1; i++)
 			sio_out(ext->symbol->name[i]);
-			i++;
+		
+		// count number of patchs
+		count = 0;
+		pat = ext->textp;
+		while (pat) {
+			for (i = 0; i < PATCH_SIZE; i++)
+				if (pat->addr[i])
+					count += 2;
+			pat = pat->next;
 		}
-		// then the reloc table 
-		asm_reloc_out(ext->reloc);
+		pat = ext->datap;
+		while (pat) {
+			for (i = 0; i < PATCH_SIZE; i++)
+				if (pat->addr[i])
+					count += 2;
+			pat = pat->next;
+		}
+		
+		sio_out(count & 0xFF);
+		sio_out(count >> 8);
+		
+		// now output all patches
+		// count number of patchs
+		count = 0;
+		pat = ext->textp;
+		while (pat) {
+			for (i = 0; i < PATCH_SIZE; i++)
+				if (pat->addr[i]) {
+					sio_out(pat->addr[i] & 0xFF);
+					sio_out(pat->addr[i] >> 8);
+				}
+			pat = pat->next;
+		}
+		pat = ext->datap;
+		while (pat) {
+			for (i = 0; i < PATCH_SIZE; i++)
+				if (pat->addr[i]) {
+					sio_out(pat->addr[i] & 0xFF);
+					sio_out(pat->addr[i] >> 8);
+				}
+			pat = pat->next;
+		}
+		
 		
 		ext = ext->next;
 	}
@@ -2647,7 +2729,7 @@ void asm_meta()
 /*
  * perform assembly functions
  */
-void asm_assemble(char flagg, char flagd)
+void asm_assemble(char flagg, char flagv)
 {
 	char tok, type, next;
 	int ifdepth, trdepth;
@@ -2694,8 +2776,8 @@ void asm_assemble(char flagg, char flagd)
 			
 			if (!asm_pass) {
 				// first pass -> second pass
-				if (flagd)
-					printf("first pass done, %d Z80 bytes used (%d:%d:%d:%d:%d)\n", (18 * sym_count) + (6 * loc_count) + (4 * glob_count) + (4 * ext_count) + ((2 + RELOC_SIZE) * reloc_count), sym_count, loc_count, glob_count, ext_count, reloc_count);
+				if (flagv)
+					printf("first pass done, %d Z80 bytes used (%d:%d:%d:%d:%d:%d)\n", (18 * sym_count) + (6 * loc_count) + (4 * glob_count) + (8 * ext_count) + ((2 + RELOC_SIZE) * reloc_count) + ((2 + PATCH_SIZE*2) * patch_count), sym_count, loc_count, glob_count, ext_count, reloc_count, patch_count);
 				asm_pass++;
 				loc_cnt = 0;
 				
@@ -2749,8 +2831,8 @@ void asm_assemble(char flagg, char flagd)
 				continue;
 			} else {
 				// emit relocation data and symbol stuff
-				if (flagd)
-					printf("second pass done, %d Z80 bytes used (%d:%d:%d:%d:%d)\n", (18 * sym_count) + (6 * loc_count) + (4 * glob_count) + (4 * ext_count) + ((2 + RELOC_SIZE) * reloc_count), sym_count, loc_count, glob_count, ext_count, reloc_count);
+				if (flagv)
+					printf("first pass done, %d Z80 bytes used (%d:%d:%d:%d:%d:%d)\n", (18 * sym_count) + (6 * loc_count) + (4 * glob_count) + (8 * ext_count) + ((2 + RELOC_SIZE) * reloc_count) + ((2 + PATCH_SIZE*2) * patch_count), sym_count, loc_count, glob_count, ext_count, reloc_count, patch_count);
 				sio_append();
 				
 				// output metablock
