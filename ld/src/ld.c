@@ -408,7 +408,6 @@ void extprot(char *name)
 		ext_table = curr;
 	}
 	ext_tail = curr;
-	
 }
 
 struct object *getobj(char *fname, uint8_t index)
@@ -591,7 +590,7 @@ void emhead()
  * clears the symbol table before a symdump cycle
  * used in making sure there aren't any duplicate symbols linked
  */
-void symclear()
+void sclear()
 {
 	struct extrn *curr;
 	
@@ -607,7 +606,7 @@ void symclear()
  *
  * returns 1 if has next object in archive
  */
-char symdump(char *fname, uint8_t index)
+char sdump(char *fname, uint8_t index)
 {
 	uint16_t nsym;
 	uint8_t b[2], type, cnt;
@@ -703,6 +702,10 @@ char symdump(char *fname, uint8_t index)
 		ext->value = rlend(b);
 		ext->type = type;
 		ext->source = obj;
+		
+		// if this object is undefined, we will need to run another pass to grab it
+		if (!obj)
+			newext = 1;
 	}
 	
 	xfclose(f);
@@ -714,10 +717,60 @@ char symdump(char *fname, uint8_t index)
 	return ret;
 }
 
+/*
+ * fixes symbols based on what segment they are in
+ * this is to be run after bases are computed
+ */
+void sfix()
+{
+	struct extrn *curr;
+	uint16_t value;
+	
+	// fix every symbol
+	for (curr = ext_table; curr; curr = curr->next) {
+		
+		// don't fix undefined externals
+		if (!curr->source)
+			continue;
+		
+		value = curr->value;
+		// fix segments
+		if (curr->type != 4) {
+			// relocate to address 0
+			value -= curr->source->org + 16;
+			
+			switch (curr->type) {
+				
+				case 0:
+					error("symbol %s is undefined", curr->name);
+				
+				case 1:
+					value = value + curr->source->text_base;
+					break;
+					
+				case 2:
+					value -= curr->source->text_size;
+					value +=  curr->source->data_base;
+					break;
+					
+				case 3:
+					value -= curr->source->text_size + curr->source->data_size;
+					value += curr->source->bss_base;
+					break;
+					
+				default:
+					error("symbol %s is external", curr->name);
+			}
+		}
+		curr->value = value;
+	}
+}
+
 int main(int argc, char *argv[])
 {
-	int i, o;
-	struct object *curr;
+	int i, o, udcnt;
+	struct object *obj;
+	struct extrn *ext;
 	
 	// flag switch
 	for (i = 1; i < argc; i++) {
@@ -774,24 +827,68 @@ int main(int argc, char *argv[])
 	// dump symbols
 	while (newext) {
 		// if we link in any new externals, we run the loop again
-		symclear();		
+		sclear();		
 		newext = 0;
 		for (i = 1; i < argc; i++) {
 			if (argv[i][0] != '-') {
 				o = 0;
-				while (symdump(argv[i], o++));
+				while (sdump(argv[i], o++));
 			}
 		}
 	}
 	
-	// calculate bases
+	// check for undefined external 
+	udcnt = 0;
+	for (ext = ext_table; ext; ext = ext->next) {
+		if (!ext->source) {
+			if (!udcnt) {
+				printf("undefined:\n");
+			}
+			udcnt++;
+			printf("%s\n", ext->name);
+		}
+	}
+	if (udcnt)
+		error("undefined externals", NULL);
+	
+	// calculate bases / fix symbols
 	cmbase();
+	sfix();
 	
 	// print out objects
 	if (flagv) {
 		printf("object file base/size:\n");
-		for (curr = obj_table; curr; curr = curr->next) {
-			printf("	text: %04x:%04x, data: %04x:%04x, bss: %04x:%04x <- %s,%d\n", curr->text_base, curr->text_size, curr->data_base, curr->data_size, curr->bss_base, curr->bss_size, curr->fname, curr->index);
+		for (obj = obj_table; obj; obj = obj->next) {
+			printf("	text: %04x:%04x, data: %04x:%04x, bss: %04x:%04x <- %s,%d\n", obj->text_base, obj->text_size, obj->data_base, obj->data_size, obj->bss_base, obj->bss_size, obj->fname, obj->index);
+		}
+	}
+	
+	// print out symbols
+	if (flagv) {
+		printf("symbol name/value/segment\n");
+		for (ext = ext_table; ext; ext = ext->next) {
+			printf("	name: %s, value: %04x ", ext->name, ext->value);
+			switch(ext->type) {
+				case 0:
+					printf("undef\n");
+					break;
+				
+				case 1:
+					printf("text\n");
+					break;
+					
+				case 2:
+					printf("data\n");
+					break;
+					
+				case 3:
+					printf("bss\n");
+					break;
+					
+				default:
+					printf("abs\n");
+					break;
+			}
 		}
 	}
 	
