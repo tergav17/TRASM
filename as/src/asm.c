@@ -151,7 +151,7 @@ struct patch *asm_alloc_patch()
 	// allocate patch struct and init
 	patch_count++;
 	new = (struct patch *) asm_alloc(sizeof(struct patch));
-	for (i = 0; i < RELOC_SIZE; i++) new->addr[i] = 0;
+	for (i = 0; i < PATCH_SIZE; i++) new->addr[i] = 0;
 	new->next = NULL;
 	
 	return new;

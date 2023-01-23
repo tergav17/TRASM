@@ -5,11 +5,12 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 /* defines */
 
 #define SYMBOL_NAME_SIZE 9
-#define SYMBOL_REC_SIZE (SYMBOL_NAME_SIZE-1)+3
+#define SYMBOL_REC_SIZE ((SYMBOL_NAME_SIZE-1)+3)
 
 #define RELOC_SIZE 8
 #define PATCH_SIZE 4
@@ -19,6 +20,7 @@
 // object header contains general information able how and where data will be linked
 struct object {
 	char *fname; // file name
+	uint8_t index;
 	size_t offset; // offset of record
 	
 	uint16_t org; // object address space origin

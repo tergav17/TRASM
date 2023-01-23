@@ -1,4 +1,4 @@
-; Put string routine
+; Get char routine
 
 .text
 .globl getc

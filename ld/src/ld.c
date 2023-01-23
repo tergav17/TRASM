@@ -24,12 +24,16 @@ struct object *obj_tail;
 struct reloc *reloc_table;
 
 struct extrn *ext_table;
+struct extrn *ext_tail;
 
 struct archive *arc_table;
 struct archive *arc_tail;
 
 /* output binary stuff */
 FILE *aout;
+
+/* state variables */
+char newext; 
 
 /* protoville */
 void error(char *msg, char *issue);
@@ -171,7 +175,7 @@ void wlend(uint8_t *b, uint16_t value)
 }
 
 /*
- * creates a new reloc struct and inits it
+ * allocs a new reloc struct and inits it
  *
  * returns new object
  */
@@ -183,6 +187,24 @@ struct reloc *nreloc()
 	// allocate start of relocation table
 	new = (struct reloc *) xalloc(sizeof(struct reloc));
 	for (i = 0; i < RELOC_SIZE; i++) new->addr[i] = 255;
+	new->next = NULL;
+	
+	return new;
+}
+
+/*
+ * allocs a new patch struct and inits it
+ *
+ * returns new object
+ */
+struct patch *npatch()
+{
+	struct patch *new;
+	int i;
+	
+	// allocate patch struct and init
+	new = (struct patch *) xalloc(sizeof(struct patch));
+	for (i = 0; i < PATCH_SIZE; i++) new->addr[i] = 0;
 	new->next = NULL;
 	
 	return new;
@@ -352,6 +374,55 @@ void skipsg(FILE *f)
 }
 
 /*
+ * generates an external prototype if it doesn't already exist
+ *
+ * name = name of external
+ */
+void extprot(char *name)
+{
+	struct extrn *curr;
+	
+	for (curr = ext_table; curr; curr = curr->next) {
+		// if the prototype already exists, don't bother making a new one
+		if (sequ(curr->name, name))
+			return;
+	}
+	
+	// new extern prototype
+	
+	// alloc new struct
+	newext = 1;
+	curr = (struct extrn *) xalloc(sizeof(struct extrn));
+	memcpy(curr->name, name, SYMBOL_NAME_SIZE);
+	curr->next = NULL;
+	curr->patch = npatch();
+	
+	curr->value = 0;
+	curr->type = 0;
+	curr->source = NULL;
+	
+	// add it to the table
+	if (ext_table) {
+		ext_tail->next = curr;
+	} else {
+		ext_table = curr;
+	}
+	ext_tail = curr;
+	
+}
+
+struct object *getobj(char *fname, uint8_t index)
+{
+	struct object *obj;
+	
+	for (obj = obj_table; obj; obj = obj->next)
+		if (obj->fname == fname && obj->index == index)
+			break;
+		
+	return obj;
+}
+
+/*
  * checks in an object file and adds it to the table
  *
  * fname = path to object file
@@ -363,9 +434,14 @@ void chkobj(char *fname, uint8_t index)
 	struct object *obj;
 	int offset;
 	
+	// do a quick check to make sure this hasn't already been checked in
+	if (getobj(fname, index))
+		return;
+	
 	// alloc object
 	obj = (struct object *) xalloc(sizeof(struct object));
 	obj->next = NULL;
+	obj->index = index;
 	obj->fname = fname;
 	
 	// read the header in
@@ -423,7 +499,7 @@ void chkobj(char *fname, uint8_t index)
 	addobj(obj);
 	
 	// next we will dump out the external symbols
-	xfseek(f, rlend(&header[0x0E]) - 16, SEEK_CUR);
+	xfseek(f, rlend(&header[0x0C]) - 16, SEEK_CUR);
 	
 	// skip over relocations and symbols
 	skipsg(f);
@@ -432,7 +508,7 @@ void chkobj(char *fname, uint8_t index)
 	// dump everything out
 	while (fread(tmp, SYMBOL_NAME_SIZE-1, 1, f) > 0 && tmp[0]) {
 		tmp[SYMBOL_NAME_SIZE] = 0;
-		printf("	extern: %s\n", tmp);
+		extprot((char *) tmp);
 		skipsg(f);
 	}
 	
@@ -511,6 +587,133 @@ void emhead()
 	fwrite(header, 16, 1, aout);
 }
 
+/*
+ * clears the symbol table before a symdump cycle
+ * used in making sure there aren't any duplicate symbols linked
+ */
+void symclear()
+{
+	struct extrn *curr;
+	
+	for (curr = ext_table; curr; curr = curr->next)
+		curr->source = NULL;
+}
+
+/*
+ * dumps out all the symbols in an archive or object file
+ *
+ * fname = file name
+ * index = index of archive
+ *
+ * returns 1 if has next object in archive
+ */
+char symdump(char *fname, uint8_t index)
+{
+	uint16_t nsym;
+	uint8_t b[2], type, cnt;
+	FILE *f;
+	struct extrn *ext;
+	struct object *obj;
+	int offset;
+	char ret, dochk;
+	
+	// read the header in
+	f = xfopen(fname, "rb");
+	fread(header, 8, 1, f);
+	
+	// check if it is an archive or not
+	ret = 1;
+	if (aequ((char *) header, "!<arch>\n", 8)) {
+		cnt = index;
+		while (cnt) {
+			// skip to next record
+			xfseek(f, 48, SEEK_CUR);
+			
+			// read in file size
+			fread(tmp, 10, 1, f);
+			offset = atoi((char *) tmp);
+			
+			// on to next record
+			// on the real system, this will need to be broken up for >32kb files
+			xfseek(f, offset + 2, SEEK_CUR);
+			cnt--;
+		}
+		
+		// ensure that there is a record here
+		if (fread(tmp, 16, 1, f) != 1) {
+			xfclose(f);
+			return 0;
+		}
+		tmp[15] = 0;
+		
+		// seek at start of record
+		xfseek(f, 44, SEEK_CUR);
+		
+		// read in header
+		fread(header, 16, 1, f);
+	} else {
+		// no more records to read after this
+		ret = 0;
+		
+		// read in the rest of the header
+		fread(header+8, 8, 1, f);
+	}
+	
+		// start doing checking
+	if (header[0x00] != 0x18 || header[0x01] != 0x0E)
+		error("%s not an object file", fname);
+	
+	// no  we will dump out the internal symbols
+	xfseek(f, rlend(&header[0x0C]) - 16, SEEK_CUR);
+	
+	// read the number of symbols
+	skipsg(f);
+	fread(b, 2, 1, f);
+	nsym = rlend(b) / SYMBOL_REC_SIZE;
+	
+	// grab the object
+	dochk = 0;
+	obj = getobj(fname, index);
+	
+	while (nsym--) {
+		// read name
+		fread(tmp, SYMBOL_NAME_SIZE-1, 1, f);
+		tmp[SYMBOL_NAME_SIZE] = 0;
+		
+		// read type and value
+		fread(&type, 1, 1, f);
+		fread(b, 2, 1, f);
+		
+		// see if there is an external to check in
+		for (ext = ext_table; ext; ext = ext->next)
+			if (sequ(ext->name, (char *) tmp))
+				break;
+		
+		// if an external can't be found, move on to the next symbol
+		if (!ext)
+			continue;
+		
+		dochk = 1;
+		
+		// make sure this symbol hasn't been checked in already
+		if (ext->source)
+			error("duplicate symbol %s", (char *) tmp);
+		
+		// update it
+		ext->value = rlend(b);
+		ext->type = type;
+		ext->source = obj;
+	}
+	
+	xfclose(f);
+	
+	// if the object hasn't been checked in and needs to, check it in
+	if (!obj && dochk) 
+		chkobj(fname, index);
+	
+	return ret;
+}
+
 int main(int argc, char *argv[])
 {
 	int i, o;
@@ -553,6 +756,9 @@ int main(int argc, char *argv[])
 	if (flagv)
 		printf("TRASM link editor v%s\n", VERSION);
 	
+	// first we set up the external tables
+	newext = 0;
+	
 	// check in all object files (but not archives)
 	for (i = 1; i < argc; i++) {
 		if (argv[i][0] != '-') {
@@ -565,6 +771,19 @@ int main(int argc, char *argv[])
 		}
 	}
 	
+	// dump symbols
+	while (newext) {
+		// if we link in any new externals, we run the loop again
+		symclear();		
+		newext = 0;
+		for (i = 1; i < argc; i++) {
+			if (argv[i][0] != '-') {
+				o = 0;
+				while (symdump(argv[i], o++));
+			}
+		}
+	}
+	
 	// calculate bases
 	cmbase();
 	
@@ -572,7 +791,7 @@ int main(int argc, char *argv[])
 	if (flagv) {
 		printf("object file base/size:\n");
 		for (curr = obj_table; curr; curr = curr->next) {
-			printf("	text: %04x:%04x, data: %04x:%04x, bss: %04x:%04x <- %s\n", curr->text_base, curr->text_size, curr->data_base, curr->data_size, curr->bss_base, curr->bss_size, curr->fname);
+			printf("	text: %04x:%04x, data: %04x:%04x, bss: %04x:%04x <- %s,%d\n", curr->text_base, curr->text_size, curr->data_base, curr->data_size, curr->bss_base, curr->bss_size, curr->fname, curr->index);
 		}
 	}
 	

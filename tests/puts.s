@@ -2,11 +2,12 @@
 
 .text
 .globl puts
+.extern putc
 puts:
 	ld	a,(hl)
 	or	a
 	ret	z
-	out	(0),a
+	call	putc
 	inc	hl
 	jp	puts
 
