@@ -82,6 +82,7 @@ void xfseek(FILE *f, off_t off, int w)
  *
  * fname = path to file
  * mode = mode to open
+ * returns pointer to file
  */
 FILE *xfopen(char *fname, char *mode)
 {
@@ -93,6 +94,21 @@ FILE *xfopen(char *fname, char *mode)
 	return f;
 }
 
+/*
+ * open object file and check for success
+ *
+ * obj = object struct to open
+ * returns pointer to file
+ */
+FILE *xoopen(struct object *obj)
+{
+	FILE *f;
+	
+	f = xfopen(obj->fname, "rb");
+	xfseek(f, obj->offset, SEEK_CUR);
+	
+	return f;
+}
 
 /*
  * prints error message, and exits
@@ -410,6 +426,13 @@ void extprot(char *name)
 	ext_tail = curr;
 }
 
+/*
+ * returns an object based on a filename and index
+ *
+ * fname = file name
+ * index = index
+ * returns object if found, null if not
+ */
 struct object *getobj(char *fname, uint8_t index)
 {
 	struct object *obj;
@@ -419,6 +442,22 @@ struct object *getobj(char *fname, uint8_t index)
 			break;
 		
 	return obj;
+}
+
+/*
+ * returns an extrn based on name
+ *
+ * name = extrn name
+ * returns extrn if found, null if not
+ */
+struct extrn *getext(char *name)
+{
+	// see if there is an external to check in
+	for (ext = ext_table; ext; ext = ext->next)
+		if (sequ(ext->name, (char *) tmp))
+			break;
+		
+	return ext;
 }
 
 /*
@@ -662,7 +701,7 @@ char sdump(char *fname, uint8_t index)
 	if (header[0x00] != 0x18 || header[0x01] != 0x0E)
 		error("%s not an object file", fname);
 	
-	// no  we will dump out the internal symbols
+	// now  we will dump out the internal symbols
 	xfseek(f, rlend(&header[0x0C]) - 16, SEEK_CUR);
 	
 	// read the number of symbols
@@ -683,10 +722,7 @@ char sdump(char *fname, uint8_t index)
 		fread(&type, 1, 1, f);
 		fread(b, 2, 1, f);
 		
-		// see if there is an external to check in
-		for (ext = ext_table; ext; ext = ext->next)
-			if (sequ(ext->name, (char *) tmp))
-				break;
+		ext = getext((char *) tmp);
 		
 		// if an external can't be found, move on to the next symbol
 		if (!ext)
@@ -715,6 +751,38 @@ char sdump(char *fname, uint8_t index)
 		chkobj(fname, index);
 	
 	return ret;
+}
+
+/*
+ * dumps out external patch tables from an object
+ *
+ * obj = object to dump
+ * seg = segment to dump (0 = text, 1 = data)
+ */
+void pdump(struct object *obj, uint8_t seg)
+{
+	FILE *f;
+	uint16_t npat;
+	
+	// open object
+	f = xoopen(obj);
+	
+	// read header and skip to extrn segment
+	xfread(header, 16, 1, f);
+	xfseek(f, rlend(&header[0x0C]) - 16, SEEK_CUR);
+	skipsg(f);
+	skipsg(f);
+	
+	// dump out all symbols
+	while (1) {
+		if (fread(tmp, SYMBOL_NAME_SIZE-1, 1, f) != 1 || !tmp[0])
+			break;
+		
+		fread(b, 2, 1, f);
+		npat = rlend(b) / 2;
+	}
+	
+	xfclose(f);
 }
 
 /*
@@ -892,18 +960,14 @@ int main(int argc, char *argv[])
 		}
 	}
 	
-	/*
-	// being outputting linked object file
+	
+	// begin outputting linked object file
 	aout = xfopen("ldout.tmp", "wb");
 	
 	// emit the head
 	emhead();
 	
-	// emit the binary
-	embin();
-	
 	// close and move output file
 	xfclose(aout);
 	rename("ldout.tmp", "a.out");
-	*/
 } 
