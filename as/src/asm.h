@@ -12,6 +12,7 @@
 #define SYMBOL_NAME_SIZE 9
 
 #define RELOC_SIZE 8
+#define EXTRN_SIZE 6
 
 /* structs */
 
@@ -35,14 +36,14 @@ struct local {
 
 /* Z80 size = RELOC_SIZE + 2 bytes */
 struct reloc {
-	uint8_t addr[RELOC_SIZE];
+	uint8_t off[RELOC_SIZE];
 	struct reloc *next;
 };
 
-/* Z80 size = 8 bytes */
+/* Z80 size = RELOC_SIZE*2 + 2 bytes */
 struct extrn {
-	struct symbol *symbol;
-	struct extrn *next;
+	uint8_t toff[EXTRN_SIZE];
+	struct treloc *next;
 };
 
 /* Z80 size = 4 bytes */
@@ -51,9 +52,31 @@ struct global {
 	struct global *next;
 };
 
+
+/* special types */
 struct tval {
 	uint16_t value;
 	uint8_t type;
+};
+
+struct toff {
+	uint8_t off;
+	uint8_t type;
+};
+
+/* headers for reloc tables */
+struct rheader {
+	uint16_t last;
+	uint8_t index;
+	struct reloc *head;
+	struct reloc *tail;
+};
+
+struct eheader {
+	uint16_t last;
+	uint8_t index;
+	struct extrn *head;
+	struct extrn *tail;
 };
 
 /* interface functions */
