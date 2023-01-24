@@ -71,8 +71,6 @@ int loc_count;
 int glob_count;
 int ext_count;
 int reloc_count;
-int patch_count;
-
 /*
  * checks if a string is equal
  * string a is read as lower case
@@ -143,20 +141,6 @@ struct reloc *asm_alloc_reloc()
 	return new;
 }
 
-struct patch *asm_alloc_patch()
-{
-	struct patch *new;
-	int i;
-	
-	// allocate patch struct and init
-	patch_count++;
-	new = (struct patch *) asm_alloc(sizeof(struct patch));
-	for (i = 0; i < PATCH_SIZE; i++) new->addr[i] = 0;
-	new->next = NULL;
-	
-	return new;
-}
-
 /*
  * resets all allocation stuff
  */
@@ -180,7 +164,6 @@ void asm_reset()
 	glob_count = 0;
 	ext_count = 0;
 	reloc_count = 1;
-	patch_count = 0;
 }
 
 /*
@@ -658,8 +641,6 @@ void asm_extern(char *name)
 	// create extern
 	curr = (struct extrn *) asm_alloc(sizeof(struct extrn));
 	curr->symbol = sym;
-	curr->textp = asm_alloc_patch();
-	curr->datap = asm_alloc_patch();
 	curr->next = NULL;
 	
 	// add it to tabl 
@@ -772,34 +753,6 @@ void asm_reloc(struct reloc *tab, uint16_t target)
 		// record keeping
 		if (tab == reloc_table) reloc_rec++;
 	} while (next == 254);
-}
-
-/*
- * adds an address to a patch table
- * addresses must be added in order
- *
- * tab = patch table
- * addr = address to add
- */
-void asm_patch(struct patch *tab, uint16_t addr)
-{
-	int i;
-	
-	// skip until we find the end of the table
-	while (tab->next && tab->addr[PATCH_SIZE-1])
-		tab = tab->next;
-	
-	// search for an empty slot
-	for (i = 0; i < PATCH_SIZE; i++) {
-		if (!tab->addr[i]) {
-			tab->addr[i] = addr;
-			return;
-		}
-	}
-	
-	// no empty slots, add to the table
-	tab->next = asm_alloc_patch();
-	tab->next->addr[0] = addr;
 }
 
 /*
@@ -1459,18 +1412,7 @@ void asm_emit_addr(uint16_t size, uint16_t value, uint8_t type)
 			ext = asm_extern_fetch(type);
 			if (!ext)
 				asm_error("cannot resolve external");
-			switch (asm_seg) {
-				case 1:
-					asm_patch(ext->textp, asm_address);
-					break;
-					
-				case 2:
-					asm_patch(ext->datap, asm_address);
-					break;
-					
-				default:
-					asm_error("external in invalid segment");
-			}
+			// TODO
 		}
 		
 		// here we output a word
@@ -2637,7 +2579,6 @@ void asm_meta()
 	uint16_t count;
 	struct global *glob;
 	struct extrn *ext;
-	struct patch *pat;
 	
 	// output size of reloc records
 	reloc_rec++;
@@ -2672,54 +2613,7 @@ void asm_meta()
 	// output all externals
 	ext = ext_table;
 	while (ext) {
-		// size-1 bytes for the name
-		for (i = 0; i < SYMBOL_NAME_SIZE-1; i++)
-			sio_out(ext->symbol->name[i]);
-		
-		// count number of patchs
-		count = 0;
-		pat = ext->textp;
-		while (pat) {
-			for (i = 0; i < PATCH_SIZE; i++)
-				if (pat->addr[i])
-					count += 2;
-			pat = pat->next;
-		}
-		pat = ext->datap;
-		while (pat) {
-			for (i = 0; i < PATCH_SIZE; i++)
-				if (pat->addr[i])
-					count += 2;
-			pat = pat->next;
-		}
-		
-		sio_out(count & 0xFF);
-		sio_out(count >> 8);
-		
-		// now output all patches
-		// count number of patchs
-		count = 0;
-		pat = ext->textp;
-		while (pat) {
-			for (i = 0; i < PATCH_SIZE; i++)
-				if (pat->addr[i]) {
-					sio_out(pat->addr[i] & 0xFF);
-					sio_out(pat->addr[i] >> 8);
-				}
-			pat = pat->next;
-		}
-		pat = ext->datap;
-		while (pat) {
-			for (i = 0; i < PATCH_SIZE; i++)
-				if (pat->addr[i]) {
-					sio_out(pat->addr[i] & 0xFF);
-					sio_out(pat->addr[i] >> 8);
-				}
-			pat = pat->next;
-		}
-		
-		
-		ext = ext->next;
+		// output all externals
 	}
 	
 	// end it all with a zero
@@ -2777,7 +2671,7 @@ void asm_assemble(char flagg, char flagv)
 			if (!asm_pass) {
 				// first pass -> second pass
 				if (flagv)
-					printf("first pass done, %d Z80 bytes used (%d:%d:%d:%d:%d:%d)\n", (18 * sym_count) + (6 * loc_count) + (4 * glob_count) + (8 * ext_count) + ((2 + RELOC_SIZE) * reloc_count) + ((2 + PATCH_SIZE*2) * patch_count), sym_count, loc_count, glob_count, ext_count, reloc_count, patch_count);
+					printf("first pass done, %d Z80 bytes used (%d:%d:%d:%d:%d)\n", (18 * sym_count) + (6 * loc_count) + (4 * glob_count) + (8 * ext_count) + ((2 + RELOC_SIZE) * reloc_count), sym_count, loc_count, glob_count, ext_count, reloc_count);
 				asm_pass++;
 				loc_cnt = 0;
 				
@@ -2832,7 +2726,7 @@ void asm_assemble(char flagg, char flagv)
 			} else {
 				// emit relocation data and symbol stuff
 				if (flagv)
-					printf("first pass done, %d Z80 bytes used (%d:%d:%d:%d:%d:%d)\n", (18 * sym_count) + (6 * loc_count) + (4 * glob_count) + (8 * ext_count) + ((2 + RELOC_SIZE) * reloc_count) + ((2 + PATCH_SIZE*2) * patch_count), sym_count, loc_count, glob_count, ext_count, reloc_count, patch_count);
+					printf("first pass done, %d Z80 bytes used (%d:%d:%d:%d:%d:%d)\n", (18 * sym_count) + (6 * loc_count) + (4 * glob_count) + (8 * ext_count) + ((2 + RELOC_SIZE) * reloc_count), sym_count, loc_count, glob_count, ext_count, reloc_count);
 				sio_append();
 				
 				// output metablock

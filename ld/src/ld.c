@@ -452,6 +452,8 @@ struct object *getobj(char *fname, uint8_t index)
  */
 struct extrn *getext(char *name)
 {
+	struct extrn *ext;
+	
 	// see if there is an external to check in
 	for (ext = ext_table; ext; ext = ext->next)
 		if (sequ(ext->name, (char *) tmp))
@@ -763,12 +765,13 @@ void pdump(struct object *obj, uint8_t seg)
 {
 	FILE *f;
 	uint16_t npat;
+	uint8_t b[2];
 	
 	// open object
 	f = xoopen(obj);
 	
 	// read header and skip to extrn segment
-	xfread(header, 16, 1, f);
+	fread(header, 16, 1, f);
 	xfseek(f, rlend(&header[0x0C]) - 16, SEEK_CUR);
 	skipsg(f);
 	skipsg(f);

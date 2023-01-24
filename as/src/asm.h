@@ -12,7 +12,6 @@
 #define SYMBOL_NAME_SIZE 9
 
 #define RELOC_SIZE 8
-#define PATCH_SIZE 4
 
 /* structs */
 
@@ -43,15 +42,7 @@ struct reloc {
 /* Z80 size = 8 bytes */
 struct extrn {
 	struct symbol *symbol;
-	struct patch *textp;
-	struct patch *datap;
 	struct extrn *next;
-};
-
-/* Z80 size = PATCH_SIZE*2 + 2 bytes */
-struct patch {
-	uint16_t addr[PATCH_SIZE];
-	struct patch *next;
 };
 
 /* Z80 size = 4 bytes */
