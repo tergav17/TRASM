@@ -12,9 +12,6 @@
 #define SYMBOL_NAME_SIZE 9
 #define SYMBOL_REC_SIZE ((SYMBOL_NAME_SIZE-1)+3)
 
-#define RELOC_SIZE 8
-#define PATCH_SIZE 4
-
 /* structs */
 
 // object header contains general information able how and where data will be linked
@@ -33,7 +30,7 @@ struct object {
 	uint16_t data_base;
 	uint16_t bss_base;
 	
-	struct extrn *head;
+	struct extrn *head; // external head
 	struct extrn *tail;
 	
 	struct object *next; // next object
@@ -43,12 +40,6 @@ struct object {
 struct archive {
 	char *fname;
 	struct archive *next;
-};
-
-// patch element
-struct patch {
-	uint16_t addr[PATCH_SIZE];
-	struct patch *next;
 };
 
 struct extrn {

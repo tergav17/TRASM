@@ -186,25 +186,6 @@ void wlend(uint8_t *b, uint16_t value)
 }
 
 /*
- * allocs a new patch struct and inits it
- *
- * returns new object
- */
-struct patch *npatch()
-{
-	struct patch *new;
-	int i;
-	
-	// allocate patch struct and init
-	new = (struct patch *) xalloc(sizeof(struct patch));
-	for (i = 0; i < PATCH_SIZE; i++) new->addr[i] = 0;
-	new->next = NULL;
-	
-	return new;
-}
-
-
-/*
  * computes a new address based on what segment it is in
  */
 uint16_t cmseg(uint16_t addr, struct object *obj)
@@ -386,6 +367,9 @@ void chkobj(char *fname, uint8_t index)
 	if (getobj(fname, index))
 		return;
 	
+		
+	printf("checking in %s at index %d\n", fname, index);
+	
 	// alloc object
 	obj = (struct object *) xalloc(sizeof(struct object));
 	obj->next = NULL;
@@ -407,6 +391,9 @@ void chkobj(char *fname, uint8_t index)
 			// read in file size
 			fread(tmp, 10, 1, f);
 			offset = atoi((char *) tmp);
+			
+			// if the offset is odd, make it even
+			if (offset % 2) offset++;
 			
 			// on to next record
 			// on the real system, this will need to be broken up for >32kb files
@@ -460,6 +447,7 @@ void chkobj(char *fname, uint8_t index)
 	// dump everything out
 	while (nsym--) {
 		fread(tmp, SYMBOL_REC_SIZE, 1, f);
+		printf("	reading symbol %8s (%d)\n", (char *) tmp, tmp[8]);
 		extprot(obj, tmp);
 	}
 	
@@ -569,9 +557,7 @@ char sdump(char *fname, uint8_t index)
 	struct object *obj;
 	int offset;
 	char ret, dochk;
-	
-	printf("reading %s at index %d\n", fname, index);
-	
+
 	// read the header in
 	f = xfopen(fname, "rb");
 	fread(header, 8, 1, f);
@@ -588,6 +574,9 @@ char sdump(char *fname, uint8_t index)
 			fread(tmp, 10, 1, f);
 			offset = atoi((char *) tmp);
 			
+			// if the offset is odd, make it even
+			if (offset % 2) offset++;
+
 			// on to next record
 			// on the real system, this will need to be broken up for >32kb files
 			xfseek(f, offset + 2, SEEK_CUR);
@@ -614,7 +603,7 @@ char sdump(char *fname, uint8_t index)
 		fread(header+8, 8, 1, f);
 	}
 	
-		// start doing checking
+	// start doing checking
 	if (header[0x00] != 0x18 || header[0x01] != 0x0E)
 		error("%s not an object file", fname);
 	
@@ -672,17 +661,6 @@ char sdump(char *fname, uint8_t index)
 		chkobj(fname, index);
 	
 	return ret;
-}
-
-/*
- * dumps out external patch tables from an object
- *
- * obj = object to dump
- * seg = segment to dump (0 = text, 1 = data)
- */
-void pdump(struct object *obj, uint8_t seg)
-{
-	return;
 }
 
 /*
