@@ -21,9 +21,6 @@ char flags = 0;
 struct object *obj_table;
 struct object *obj_tail;
 
-struct extrn *ext_table;
-struct extrn *ext_tail;
-
 struct archive *arc_table;
 struct archive *arc_tail;
 
@@ -294,37 +291,43 @@ void skipsg(FILE *f)
 /*
  * generates an external prototype if it doesn't already exist
  *
- * name = name of external
+ * obj = object source of record
+ * record = pointer to record 
  */
-void extprot(char *name)
+void extprot(struct object *obj, uint8_t *record)
 {
-	struct extrn *curr;
+	struct extrn *ext;
+	uint8_t number;
 	
-	for (curr = ext_table; curr; curr = curr->next) {
-		// if the prototype already exists, don't bother making a new one
-		if (sequ(curr->name, name))
-			return;
-	}
+	// make sure number is external
+	number = record[SYMBOL_NAME_SIZE-1];
+	if (number < 5)
+		return;
 	
 	// new extern prototype
 	
 	// alloc new struct
 	newext = 1;
-	curr = (struct extrn *) xalloc(sizeof(struct extrn));
-	memcpy(curr->name, name, SYMBOL_NAME_SIZE);
-	curr->next = NULL;
+	ext = (struct extrn *) xalloc(sizeof(struct extrn));
+	memcpy(ext->name, record, SYMBOL_NAME_SIZE-1);
+	ext->name[SYMBOL_NAME_SIZE] = 0;
 	
-	curr->value = 0;
-	curr->type = 0;
-	curr->source = NULL;
+	ext->next = NULL;
+	ext->number = number;
+	
+	ext->value = 0;
+	ext->type = 0;
+	ext->source = NULL;
 	
 	// add it to the table
-	if (ext_table) {
-		ext_tail->next = curr;
+	if (obj->head) {
+		obj->tail->next = ext;
 	} else {
-		ext_table = curr;
+		obj->head = ext;
 	}
-	ext_tail = curr;
+	obj->tail = ext;
+	
+	printf("checked in external %s from %s,%d\n", ext->name, obj->fname, obj->index);
 }
 
 /*
@@ -354,11 +357,13 @@ struct object *getobj(char *fname, uint8_t index)
 struct extrn *getext(char *name)
 {
 	struct extrn *ext;
+	struct object *obj;
 	
 	// see if there is an external to check in
-	for (ext = ext_table; ext; ext = ext->next)
-		if (sequ(ext->name, (char *) tmp))
-			break;
+	for (obj = obj_table; obj; obj = obj->next)
+		for (ext = obj->head; ext; ext = ext->next)
+			if (sequ(ext->name, (char *) tmp))
+				break;
 		
 	return ext;
 }
@@ -373,6 +378,8 @@ void chkobj(char *fname, uint8_t index)
 {
 	FILE *f;
 	struct object *obj;
+	uint8_t b[2];
+	uint16_t nsym;
 	int offset;
 	
 	// do a quick check to make sure this hasn't already been checked in
@@ -382,6 +389,8 @@ void chkobj(char *fname, uint8_t index)
 	// alloc object
 	obj = (struct object *) xalloc(sizeof(struct object));
 	obj->next = NULL;
+	obj->head = NULL;
+	obj->tail = NULL;
 	obj->index = index;
 	obj->fname = fname;
 	
@@ -442,15 +451,16 @@ void chkobj(char *fname, uint8_t index)
 	// next we will dump out the external symbols
 	xfseek(f, rlend(&header[0x0C]) - 16, SEEK_CUR);
 	
-	// skip over relocations and symbols
-	skipsg(f);
+	// skip over relocations
 	skipsg(f);
 	
+	fread(b, 2, 1, f);
+	nsym = rlend(b) / SYMBOL_REC_SIZE;
+	
 	// dump everything out
-	while (fread(tmp, SYMBOL_NAME_SIZE-1, 1, f) > 0 && tmp[0]) {
-		tmp[SYMBOL_NAME_SIZE] = 0;
-		extprot((char *) tmp);
-		skipsg(f);
+	while (nsym--) {
+		fread(tmp, SYMBOL_REC_SIZE, 1, f);
+		extprot(obj, tmp);
 	}
 	
 	xfclose(f);
@@ -534,10 +544,12 @@ void emhead()
  */
 void sclear()
 {
-	struct extrn *curr;
+	struct extrn *ext;
+	struct object *obj;
 	
-	for (curr = ext_table; curr; curr = curr->next)
-		curr->source = NULL;
+	for (obj = obj_table; obj; obj = obj->next)
+		for (ext = obj->head; ext; ext = ext->next)
+			ext->source = NULL;
 }
 
 /*
@@ -557,6 +569,8 @@ char sdump(char *fname, uint8_t index)
 	struct object *obj;
 	int offset;
 	char ret, dochk;
+	
+	printf("reading %s at index %d\n", fname, index);
 	
 	// read the header in
 	f = xfopen(fname, "rb");
@@ -625,6 +639,10 @@ char sdump(char *fname, uint8_t index)
 		fread(&type, 1, 1, f);
 		fread(b, 2, 1, f);
 		
+		// if the type is external, we ignore it
+		if (type > 4)
+			continue;
+		
 		ext = getext((char *) tmp);
 		
 		// if an external can't be found, move on to the next symbol
@@ -673,46 +691,49 @@ void pdump(struct object *obj, uint8_t seg)
  */
 void sfix()
 {
-	struct extrn *curr;
+	struct extrn *ext;
+	struct object *obj;
 	uint16_t value;
 	
 	// fix every symbol
-	for (curr = ext_table; curr; curr = curr->next) {
-		
-		// don't fix undefined externals
-		if (!curr->source)
-			continue;
-		
-		value = curr->value;
-		// fix segments
-		if (curr->type != 4) {
-			// relocate to address 0
-			value -= curr->source->org + 16;
+	for (obj = obj_table; obj; obj = obj->next) {
+		for (ext = obj->head; ext; ext = ext->next) {
 			
-			switch (curr->type) {
+			// don't fix undefined externals
+			if (!ext->source)
+				continue;
+			
+			value = ext->value;
+			// fix segments
+			if (ext->type != 4) {
+				// relocate to address 0
+				value -= ext->source->org + 16;
 				
-				case 0:
-					error("symbol %s is undefined", curr->name);
-				
-				case 1:
-					value = value + curr->source->text_base;
-					break;
+				switch (ext->type) {
 					
-				case 2:
-					value -= curr->source->text_size;
-					value +=  curr->source->data_base;
-					break;
+					case 0:
+						error("symbol %s is undefined", ext->name);
 					
-				case 3:
-					value -= curr->source->text_size + curr->source->data_size;
-					value += curr->source->bss_base;
-					break;
-					
-				default:
-					error("symbol %s is external", curr->name);
+					case 1:
+						value = value + ext->source->text_base;
+						break;
+						
+					case 2:
+						value -= ext->source->text_size;
+						value +=  ext->source->data_base;
+						break;
+						
+					case 3:
+						value -= ext->source->text_size + ext->source->data_size;
+						value += ext->source->bss_base;
+						break;
+						
+					default:
+						error("symbol %s is external", ext->name);
+				}
 			}
+			ext->value = value;
 		}
-		curr->value = value;
 	}
 }
 
@@ -789,14 +810,16 @@ int main(int argc, char *argv[])
 	
 	// check for undefined external 
 	udcnt = 0;
-	for (ext = ext_table; ext; ext = ext->next) {
-		if (!ext->source) {
-			if (!udcnt) {
-				printf("undefined:\n");
+	for (obj = obj_table; obj; obj = obj->next) {
+		for (ext = obj->head; ext; ext = ext->next) {
+			if (!ext->source) {
+				if (!udcnt) {
+					printf("undefined:\n");
+				}
+				udcnt++;
+				printf("%s\n", ext->name);
 			}
-			udcnt++;
-			printf("%s\n", ext->name);
-		}
+	}
 	}
 	if (udcnt)
 		error("undefined externals", NULL);
@@ -816,28 +839,30 @@ int main(int argc, char *argv[])
 	// print out symbols
 	if (flagv) {
 		printf("symbol name/value/segment\n");
-		for (ext = ext_table; ext; ext = ext->next) {
-			printf("	name: %s, value: %04x ", ext->name, ext->value);
-			switch(ext->type) {
-				case 0:
-					printf("undef\n");
-					break;
-				
-				case 1:
-					printf("text\n");
-					break;
+		for (obj = obj_table; obj; obj = obj->next) {
+			for (ext = obj->head; ext; ext = ext->next) {
+				printf("	name: %s, value: %04x ", ext->name, ext->value);
+				switch(ext->type) {
+					case 0:
+						printf("undef\n");
+						break;
 					
-				case 2:
-					printf("data\n");
-					break;
-					
-				case 3:
-					printf("bss\n");
-					break;
-					
-				default:
-					printf("abs\n");
-					break;
+					case 1:
+						printf("text\n");
+						break;
+						
+					case 2:
+						printf("data\n");
+						break;
+						
+					case 3:
+						printf("bss\n");
+						break;
+						
+					default:
+						printf("abs\n");
+						break;
+				}
 			}
 		}
 	}

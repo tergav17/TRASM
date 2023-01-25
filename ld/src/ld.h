@@ -33,6 +33,9 @@ struct object {
 	uint16_t data_base;
 	uint16_t bss_base;
 	
+	struct extrn *head;
+	struct extrn *tail;
+	
 	struct object *next; // next object
 	
 };
@@ -50,6 +53,7 @@ struct patch {
 
 struct extrn {
 	char name[SYMBOL_NAME_SIZE]; // extern reference
+	uint8_t number; // external number for object
 	
 	uint16_t value; // symbol patch stuff
 	uint8_t type;
