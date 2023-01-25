@@ -21,8 +21,6 @@ char flags = 0;
 struct object *obj_table;
 struct object *obj_tail;
 
-struct reloc *reloc_table;
-
 struct extrn *ext_table;
 struct extrn *ext_tail;
 
@@ -191,24 +189,6 @@ void wlend(uint8_t *b, uint16_t value)
 }
 
 /*
- * allocs a new reloc struct and inits it
- *
- * returns new object
- */
-struct reloc *nreloc()
-{
-	struct reloc *new;
-	int i;
-	
-	// allocate start of relocation table
-	new = (struct reloc *) xalloc(sizeof(struct reloc));
-	for (i = 0; i < RELOC_SIZE; i++) new->addr[i] = 255;
-	new->next = NULL;
-	
-	return new;
-}
-
-/*
  * allocs a new patch struct and inits it
  *
  * returns new object
@@ -226,84 +206,6 @@ struct patch *npatch()
 	return new;
 }
 
-
-/*
- * insert an address into a reloc table
- *
- * tab = relocation table
- * target = address to add
- */
-void reloci(struct reloc *tab, uint16_t target)
-{
-	struct reloc *curr;
-	uint16_t last, diff;
-	uint8_t next, tmp;
-	int i;
-	
-	// begin at table start
-	curr = tab;
-	last = 0;
-	i = 0;
-	next = 255;
-	// find end of table
-	while (curr->addr[i] != 255 && next == 255) {
-		
-		if (target <= curr->addr[i] + last) {
-			diff = target - last;
-			next = curr->addr[i] - diff;
-			curr->addr[i] = diff;
-		}
-		
-		last += curr->addr[i];
-		i++;
-		
-		// advance to next record
-		if (i >= RELOC_SIZE) {
-			curr = curr->next;
-			i = 0;
-		}
-	}
-	
-	// do forwarding if needed
-	while (curr->addr[i] != 255) {
-		
-		// swap
-		tmp = curr->addr[i];
-		curr->addr[i] = next;
-		next = tmp;
-		
-		last += curr->addr[i];
-		i++;
-		
-		// advance to next record
-		if (i >= RELOC_SIZE) {
-			curr = curr->next;
-			i = 0;
-		}
-	}
-	
-	// diff the difference
-	if (next == 255) diff = target - last;
-	else diff = next;
-	do {
-		// calculate next byte to add
-		if (diff < 254) {
-			next = diff;
-			diff = 0;
-		} else {
-			diff = diff - 254;
-			next = 254;
-		}
-		
-		// add it to the reloc table, extending a record if needed
-		curr->addr[i++] = next;
-		if (i >= RELOC_SIZE) {
-			i = 0;
-			curr->next = nreloc();
-			curr = curr->next;
-		}
-	} while (next == 254);
-}
 
 /*
  * computes a new address based on what segment it is in
@@ -411,7 +313,6 @@ void extprot(char *name)
 	curr = (struct extrn *) xalloc(sizeof(struct extrn));
 	memcpy(curr->name, name, SYMBOL_NAME_SIZE);
 	curr->next = NULL;
-	curr->patch = npatch();
 	
 	curr->value = 0;
 	curr->type = 0;
@@ -763,29 +664,7 @@ char sdump(char *fname, uint8_t index)
  */
 void pdump(struct object *obj, uint8_t seg)
 {
-	FILE *f;
-	uint16_t npat;
-	uint8_t b[2];
-	
-	// open object
-	f = xoopen(obj);
-	
-	// read header and skip to extrn segment
-	fread(header, 16, 1, f);
-	xfseek(f, rlend(&header[0x0C]) - 16, SEEK_CUR);
-	skipsg(f);
-	skipsg(f);
-	
-	// dump out all symbols
-	while (1) {
-		if (fread(tmp, SYMBOL_NAME_SIZE-1, 1, f) != 1 || !tmp[0])
-			break;
-		
-		fread(b, 2, 1, f);
-		npat = rlend(b) / 2;
-	}
-	
-	xfclose(f);
+	return;
 }
 
 /*

@@ -42,12 +42,6 @@ struct archive {
 	struct archive *next;
 };
 
-// relocation element
-struct reloc {
-	uint8_t addr[RELOC_SIZE];
-	struct reloc *next;
-};
-
 // patch element
 struct patch {
 	uint16_t addr[PATCH_SIZE];
@@ -60,8 +54,6 @@ struct extrn {
 	uint16_t value; // symbol patch stuff
 	uint8_t type;
 	struct object *source;
-	
-	struct patch *patch; // addresses that need patching
 	
 	struct extrn *next; // next external
 };

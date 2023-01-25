@@ -16,6 +16,17 @@
 
 /* structs */
 
+/* special types */
+struct tval {
+	uint16_t value;
+	uint8_t type;
+};
+
+struct toff {
+	uint8_t off;
+	uint8_t type;
+};
+
 /* Z80 size = 18 bytes */
 struct symbol {
 	uint8_t type;
@@ -40,28 +51,16 @@ struct reloc {
 	struct reloc *next;
 };
 
-/* Z80 size = RELOC_SIZE*2 + 2 bytes */
+/* Z80 size = EXTRN_SIZE*2 + 2 bytes */
 struct extrn {
-	uint8_t toff[EXTRN_SIZE];
-	struct treloc *next;
+	struct toff toff[EXTRN_SIZE];
+	struct extrn *next;
 };
 
 /* Z80 size = 4 bytes */
 struct global {
 	struct symbol *symbol;
 	struct global *next;
-};
-
-
-/* special types */
-struct tval {
-	uint16_t value;
-	uint8_t type;
-};
-
-struct toff {
-	uint8_t off;
-	uint8_t type;
 };
 
 /* headers for reloc tables */
