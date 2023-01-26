@@ -768,13 +768,12 @@ void sopen(struct object *obj)
 	
 	if (reloc_rec) {
 		fread(tmp, RELOC_REC_SIZE, 1, relf);
-		reloc_last.type = 1;
 		reloc_last.value = rlend(tmp);
 		reloc_rec--;
 	}
 	
 	if (extrn_rec) {
-		fread(tmp, EXTRN_REC_SIZE, 1, relf);
+		fread(tmp, EXTRN_REC_SIZE, 1, extf);
 		extrn_last.type = tmp[0];
 		extrn_last.value = rlend(tmp + 1);
 		extrn_rec--;
@@ -782,11 +781,49 @@ void sopen(struct object *obj)
 }
 
 /*
- * returns the next address in the currently open stream
+ * reads the next value in the stream into a tval
+ *
+ * out = pointer to output tval
  */
-struct tval snext()
+void snext(struct tval *out)
 {
-	//if (reloc_last.value && reloc_last.value <=
+	// the theory of operation here is to splice the two streams together
+	// values will come out lowest to highest
+	
+	// check reloc stream
+	if (reloc_last.value && reloc_last.value <= extrn_last.value) {
+		out->value = reloc_last.value;
+		out->type = 1;
+		
+		reloc_last.value = 0;
+		if (reloc_rec) {
+			fread(tmp, RELOC_REC_SIZE, 1, relf);
+			reloc_last.value = rlend(tmp);
+			reloc_rec--;
+		}
+		
+		return;
+	}
+	
+	// check extern stream
+	if (extrn_last.value) {
+		out->value = extrn_last.value;
+		out->type = extrn_last.type;
+		
+		extrn_last.value = 0;
+		if (extrn_rec) {
+			fread(tmp, EXTRN_REC_SIZE, 1, relf);
+			extrn_last.type = tmp[0];
+			extrn_last.value = rlend(tmp + 1);
+			extrn_rec--;
+		}
+		
+		return;
+	}
+	
+	// both streams are empty, return 0
+	out->value = 0;
+	out->type = 0;
 }
 
 /*
