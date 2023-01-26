@@ -44,6 +44,8 @@ uint16_t extrn_size;
 struct tval reloc_last;
 struct tval extrn_last;
 
+uint16_t rsize;
+
 /* protoville */
 void error(char *msg, char *issue);
 
@@ -275,12 +277,12 @@ char isarch(char *fname)
 /*
  * skips over a relocation or symbol seg
  */
-void skipsg(FILE *f)
+void skipsg(FILE *f, uint8_t size)
 {
 	uint8_t b[2];
 	
 	fread(b, 2, 1, f);
-	xfseek(f, rlend(b), SEEK_CUR);
+	xfseek(f, rlend(b) * size, SEEK_CUR);
 }
 
 /*
@@ -464,11 +466,11 @@ struct object *chkobj(char *fname, uint8_t index)
 	xfseek(f, rlend(&header[0x0C]) - 16, SEEK_CUR);
 	
 	// skip over relocations
-	skipsg(f);
+	skipsg(f, RELOC_REC_SIZE);
 	
 	// read number of symbols
 	fread(b, 2, 1, f);
-	nsym = rlend(b) / SYMBOL_REC_SIZE;
+	nsym = rlend(b);
 	
 	// dump everything out
 	while (nsym--) {
@@ -636,9 +638,9 @@ char sdump(char *fname, uint8_t index)
 	xfseek(f, rlend(&header[0x0C]) - 16, SEEK_CUR);
 	
 	// read the number of symbols
-	skipsg(f);
+	skipsg(f, RELOC_REC_SIZE);
 	fread(b, 2, 1, f);
-	nsym = rlend(b) / SYMBOL_REC_SIZE;
+	nsym = rlend(b);
 	
 	while (nsym--) {
 		// read name
@@ -752,8 +754,8 @@ void sopen(struct object *obj)
 	// next one to external table
 	fread(header, 16, 1, extf);
 	xfseek(extf, rlend(&header[0x0C]) - 16, SEEK_CUR);
-	skipsg(extf);
-	skipsg(extf);
+	skipsg(extf, RELOC_REC_SIZE);
+	skipsg(extf, SYMBOL_REC_SIZE);
 	
 	// now we read in the number of records for each
 	fread(tmp, 2, 1, relf);
@@ -827,11 +829,51 @@ void snext(struct tval *out)
 }
 
 /*
+ * emits a binary segment
+ *
+ * obj = object to emit
+ * seg = segment to emit (0 = text, 1 = data)
+ */
+void emseg(struct object *obj, uint8_t seg)
+{
+	FILE *bin;
+	struct tval next;
+	uint16_t skip;
+	
+	// open up the object binary
+	bin = xoopen(obj);
+	
+	// first we figure out how much information to skip
+	// header always gets skipped
+	skip = 0x0F;
+	if (seg) {
+		// skip text segment too
+		skip += obj->text_size;
+	}
+	
+	// seek binary, and scan through stream
+	xfseek(bin, skip, SEEK_CUR);
+	for (snext(&next); next.value && next.value < skip; snext(&next));
+}
+
+/*
  * emits the binary section of the object file
  */
 void embin()
 {
+	uint8_t seg;
+	struct object *obj;
 	
+	// count number of relocations in final binary
+	rsize = 0;
+	
+	// first the text segment is emitted, then data
+	for (seg = 0; seg < 2; seg++) {
+		// objects will be emitted in order
+		for (obj = obj_table; obj; obj = obj->next) {
+			emseg(obj, seg);
+		}
+	}
 }
 
 int main(int argc, char *argv[])
@@ -969,7 +1011,7 @@ int main(int argc, char *argv[])
 	emhead();
 	
 	// emit the binary contents
-	embin();
+	// embin();
 	
 	// close and move output file
 	xfclose(aout);

@@ -2614,16 +2614,16 @@ void asm_meta()
 	struct global *glob;
 	
 	// output size of reloc records
-	sio_out((reloc_rec * 2) & 0xFF);
-	sio_out((reloc_rec * 2) >> 8);
+	sio_out(reloc_rec & 0xFF);
+	sio_out(reloc_rec >> 8);
 				
 	// output reloc table
 	asm_reloc_out(textr.head, 0);
 	asm_reloc_out(datar.head, text_top);
 	
 	// output size of global records
-	sio_out((glob_rec * 11) & 0xFF);
-	sio_out((glob_rec * 11) >> 8);
+	sio_out(glob_rec & 0xFF);
+	sio_out(glob_rec >> 8);
 	
 	// output all globals
 	glob = glob_table;
@@ -2644,8 +2644,8 @@ void asm_meta()
 	}
 	
 	// output size of extern records
-	sio_out((extrn_rec * 3) & 0xFF);
-	sio_out((extrn_rec * 3) >> 8);
+	sio_out(extrn_rec & 0xFF);
+	sio_out(extrn_rec >> 8);
 
 	// output reloc table
 	asm_extern_out(texte.head, 0);
