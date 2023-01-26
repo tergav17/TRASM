@@ -30,27 +30,36 @@ struct object {
 	uint16_t data_base;
 	uint16_t bss_base;
 	
-	struct extrn *head; // external head
-	struct extrn *tail;
+	struct reference *head; // internal structs
+	struct reference *tail;
 	
 	struct object *next; // next object
 	
 };
 
+// struct to hold known archives
 struct archive {
 	char *fname;
 	struct archive *next;
 };
 
+// external symbol used for patching
 struct extrn {
 	char name[SYMBOL_NAME_SIZE]; // extern reference
-	uint8_t number; // external number for object
 	
 	uint16_t value; // symbol patch stuff
 	uint8_t type;
 	struct object *source;
 	
 	struct extrn *next; // next external
+};
+
+// reference to extrn
+struct reference {
+	struct extrn *ext;
+	uint8_t number;
+	
+	struct reference *next;
 };
 
 #endif
