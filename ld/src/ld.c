@@ -345,8 +345,6 @@ void extprot(struct object *obj, uint8_t *record)
 		obj->head = ref;
 	}
 	obj->tail = ref;
-	
-	printf("checked in external %s from %s,%d\n", ext->name, obj->fname, obj->index);
 }
 
 /*
@@ -372,8 +370,9 @@ struct object *getobj(char *fname, uint8_t index)
  *
  * fname = path to object file
  * index = record index if archive
+ * returns pointer to new object struct
  */
-void chkobj(char *fname, uint8_t index)
+struct object *chkobj(char *fname, uint8_t index)
 {
 	FILE *f;
 	struct object *obj;
@@ -382,11 +381,8 @@ void chkobj(char *fname, uint8_t index)
 	int offset;
 	
 	// do a quick check to make sure this hasn't already been checked in
-	if (getobj(fname, index))
-		return;
-	
-		
-	printf("checking in %s at index %d\n", fname, index);
+	if ((obj = getobj(fname, index)))
+		return obj;
 	
 	// alloc object
 	obj = (struct object *) xalloc(sizeof(struct object));
@@ -459,17 +455,20 @@ void chkobj(char *fname, uint8_t index)
 	// skip over relocations
 	skipsg(f);
 	
+	// read number of symbols
 	fread(b, 2, 1, f);
 	nsym = rlend(b) / SYMBOL_REC_SIZE;
 	
 	// dump everything out
 	while (nsym--) {
 		fread(tmp, SYMBOL_REC_SIZE, 1, f);
-		printf("	reading symbol %8s (%d)\n", (char *) tmp, tmp[8]);
 		extprot(obj, tmp);
 	}
 	
+	// close and return
 	xfclose(f);
+	
+	return obj;
 }
 
 /*
@@ -570,9 +569,8 @@ char sdump(char *fname, uint8_t index)
 	uint8_t b[2], type, cnt;
 	FILE *f;
 	struct extrn *ext;
-	struct object *obj;
 	int offset;
-	char ret, dochk;
+	char ret;
 
 	// read the header in
 	f = xfopen(fname, "rb");
@@ -631,10 +629,6 @@ char sdump(char *fname, uint8_t index)
 	fread(b, 2, 1, f);
 	nsym = rlend(b) / SYMBOL_REC_SIZE;
 	
-	// grab the object
-	dochk = 0;
-	obj = getobj(fname, index);
-	
 	while (nsym--) {
 		// read name
 		fread(tmp, SYMBOL_NAME_SIZE-1, 1, f);
@@ -653,9 +647,7 @@ char sdump(char *fname, uint8_t index)
 		// if an external can't be found, move on to the next symbol
 		if (!ext)
 			continue;
-		
-		dochk = 1;
-		
+
 		// make sure this symbol hasn't been checked in already
 		if (ext->source)
 			error("duplicate symbol %s", (char *) tmp);
@@ -663,17 +655,12 @@ char sdump(char *fname, uint8_t index)
 		// update it
 		ext->value = rlend(b);
 		ext->type = type;
-		ext->source = obj;
 		
-		if (!obj)
-			newext = 1;
+		// set the source, checking it in if required
+		ext->source = chkobj(fname, index);;
 	}
 	
 	xfclose(f);
-	
-	// if the object hasn't been checked in and needs to, check it in
-	if (dochk) 
-		chkobj(fname, index);
 	
 	return ret;
 }
@@ -725,6 +712,14 @@ void sfix()
 		}
 		ext->value = value;
 	}
+	
+}
+
+/*
+ * emits the binary section of the object file
+ */
+void embin()
+{
 	
 }
 
@@ -861,6 +856,9 @@ int main(int argc, char *argv[])
 	
 	// emit the head
 	emhead();
+	
+	// emit the binary contents
+	embin();
 	
 	// close and move output file
 	xfclose(aout);
