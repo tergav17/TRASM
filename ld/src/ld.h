@@ -12,6 +12,9 @@
 #define SYMBOL_NAME_SIZE 9
 #define SYMBOL_REC_SIZE ((SYMBOL_NAME_SIZE-1)+3)
 
+#define RELOC_REC_SIZE 2
+#define EXTRN_REC_SIZE 3
+
 /* structs */
 
 // object header contains general information able how and where data will be linked
@@ -60,6 +63,12 @@ struct reference {
 	uint8_t number;
 	
 	struct reference *next;
+};
+
+// typed value
+struct tval {
+	uint8_t type;
+	uint16_t value;
 };
 
 #endif

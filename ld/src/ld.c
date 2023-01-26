@@ -33,6 +33,17 @@ FILE *aout;
 /* state variables */
 char newext; 
 
+/* stream stuff */
+FILE *relf;
+FILE *extf;
+uint16_t reloc_rec;
+uint16_t reloc_size;
+uint16_t extrn_rec;
+uint16_t extrn_size;
+
+struct tval reloc_last;
+struct tval extrn_last;
+
 /* protoville */
 void error(char *msg, char *issue);
 
@@ -712,7 +723,70 @@ void sfix()
 		}
 		ext->value = value;
 	}
+}
+
+/*
+ * closes up the currectly open stream
+ */
+void sclose()
+{
+	xfclose(relf);
+	xfclose(extf);
+}
+
+/*
+ * opens a streams to read relocation data
+ *
+ * obj = object to open
+ */
+void sopen(struct object *obj)
+{
+	// open objects
+	relf = xoopen(obj);
+	extf = xoopen(obj);
 	
+	// first one jumps to relocation table
+	fread(header, 16, 1, relf);
+	xfseek(relf, rlend(&header[0x0C]) - 16, SEEK_CUR);
+	
+	// next one to external table
+	fread(header, 16, 1, extf);
+	xfseek(extf, rlend(&header[0x0C]) - 16, SEEK_CUR);
+	skipsg(extf);
+	skipsg(extf);
+	
+	// now we read in the number of records for each
+	fread(tmp, 2, 1, relf);
+	reloc_size = reloc_rec = rlend(tmp) / RELOC_REC_SIZE;
+	
+	fread(tmp, 2, 1, extf);
+	extrn_size = extrn_rec = rlend(tmp) / EXTRN_REC_SIZE;
+
+	// start reading values in
+	reloc_last.value = 0;
+	extrn_last.value = 0;
+	
+	if (reloc_rec) {
+		fread(tmp, RELOC_REC_SIZE, 1, relf);
+		reloc_last.type = 1;
+		reloc_last.value = rlend(tmp);
+		reloc_rec--;
+	}
+	
+	if (extrn_rec) {
+		fread(tmp, EXTRN_REC_SIZE, 1, relf);
+		extrn_last.type = tmp[0];
+		extrn_last.value = rlend(tmp + 1);
+		extrn_rec--;
+	}
+}
+
+/*
+ * returns the next address in the currently open stream
+ */
+struct tval snext()
+{
+	//if (reloc_last.value && reloc_last.value <=
 }
 
 /*
