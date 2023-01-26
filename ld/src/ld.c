@@ -10,7 +10,7 @@
 
 /* buffers */
 uint8_t header[16];
-uint8_t tmp[16];
+uint8_t tmp[512];
 
 /* flags */
 char flagv = 0;
@@ -28,7 +28,7 @@ struct archive *arc_table;
 struct archive *arc_tail;
 
 /* output binary stuff */
-FILE *aout;
+FILE *aout
 
 /* state variables */
 char newext; 
@@ -838,22 +838,66 @@ void emseg(struct object *obj, uint8_t seg)
 {
 	FILE *bin;
 	struct tval next;
-	uint16_t skip;
+	uint16_t skip, last, chunk, left, value;
 	
-	// open up the object binary
+	// open up the object binary and stream
 	bin = xoopen(obj);
+	sopen(obj);
 	
 	// first we figure out how much information to skip
 	// header always gets skipped
 	skip = 0x0F;
 	if (seg) {
 		// skip text segment too
+		left = obj->data_size
 		skip += obj->text_size;
+	} else {
+		left = obj->text_size
 	}
 	
 	// seek binary, and scan through stream
 	xfseek(bin, skip, SEEK_CUR);
 	for (snext(&next); next.value && next.value < skip; snext(&next));
+	
+	last = skip;
+	// read out the binary
+	while (left) {
+		
+		// figure out how many bytes to read this chunk
+		if (next.value) {
+			// sanity check
+			if (last > next.value)
+				error("backwards relocation");
+			
+			chunk =  next.value - last;
+		} else 
+			chunk = left;
+		
+		// make sure we aren't reading more than 512 bytes
+		if (chunk > 512)
+			chunk = 512;
+		
+		// transfer to binary
+		fread(tmp, chunk, 1, bin);
+		fwrite(tmp, chunk, 1, aout);
+		left -= chunk;
+		last += chunk;
+		
+		// see if we should do a relocation
+		if (next.value == last) {
+			if (left < 2)
+				error("cannot relocate byte", NULL);
+			
+			// read 2 bytes
+			fread(tmp, 2, 1, bin);
+			value = rlend(tmp);
+		}
+	}
+	
+	
+	// close everything
+	xfclose(bin);
+	sclose();
 }
 
 /*
@@ -1011,7 +1055,7 @@ int main(int argc, char *argv[])
 	emhead();
 	
 	// emit the binary contents
-	// embin();
+	embin();
 	
 	// close and move output file
 	xfclose(aout);
