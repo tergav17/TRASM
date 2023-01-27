@@ -28,7 +28,7 @@ struct archive *arc_table;
 struct archive *arc_tail;
 
 /* output binary stuff */
-FILE *aout
+FILE *aout;
 
 /* state variables */
 char newext; 
@@ -301,6 +301,24 @@ struct extrn *getext(char *name)
 			break;
 		
 	return ext;
+}
+
+/*
+ * returns an extern based on a number
+ *
+ * number = external number
+ * obj = object to search
+ */
+struct extrn *getref(uint8_t number, struct object *obj)
+{
+	struct reference *ref;
+	
+	// look for the reference
+	for (ref = obj->head; ref; ref = ref->next)
+		if (ref->number == number)
+			return ref->ext;
+		
+	return NULL;
 }
 
 /*
@@ -759,10 +777,10 @@ void sopen(struct object *obj)
 	
 	// now we read in the number of records for each
 	fread(tmp, 2, 1, relf);
-	reloc_size = reloc_rec = rlend(tmp) / RELOC_REC_SIZE;
+	reloc_size = reloc_rec = rlend(tmp);
 	
 	fread(tmp, 2, 1, extf);
-	extrn_size = extrn_rec = rlend(tmp) / EXTRN_REC_SIZE;
+	extrn_size = extrn_rec = rlend(tmp);
 
 	// start reading values in
 	reloc_last.value = 0;
@@ -814,15 +832,15 @@ void snext(struct tval *out)
 		
 		extrn_last.value = 0;
 		if (extrn_rec) {
-			fread(tmp, EXTRN_REC_SIZE, 1, relf);
+			fread(tmp, EXTRN_REC_SIZE, 1, extf);
 			extrn_last.type = tmp[0];
 			extrn_last.value = rlend(tmp + 1);
 			extrn_rec--;
 		}
-		
+
 		return;
 	}
-	
+
 	// both streams are empty, return 0
 	out->value = 0;
 	out->type = 0;
@@ -838,7 +856,10 @@ void emseg(struct object *obj, uint8_t seg)
 {
 	FILE *bin;
 	struct tval next;
+	struct extrn *ext;
 	uint16_t skip, last, chunk, left, value;
+	
+	printf("emmiting segment %d of %s\n", seg, obj->fname);
 	
 	// open up the object binary and stream
 	bin = xoopen(obj);
@@ -846,13 +867,13 @@ void emseg(struct object *obj, uint8_t seg)
 	
 	// first we figure out how much information to skip
 	// header always gets skipped
-	skip = 0x0F;
+	skip = 0x10;
 	if (seg) {
 		// skip text segment too
-		left = obj->data_size
+		left = obj->data_size;
 		skip += obj->text_size;
 	} else {
-		left = obj->text_size
+		left = obj->text_size;
 	}
 	
 	// seek binary, and scan through stream
@@ -867,7 +888,7 @@ void emseg(struct object *obj, uint8_t seg)
 		if (next.value) {
 			// sanity check
 			if (last > next.value)
-				error("backwards relocation");
+				error("backwards relocation", NULL);
 			
 			chunk =  next.value - last;
 		} else 
@@ -879,6 +900,7 @@ void emseg(struct object *obj, uint8_t seg)
 		
 		// transfer to binary
 		fread(tmp, chunk, 1, bin);
+		printf("	emitting chunk of %d size starting with %02x\n", chunk, tmp[0]);
 		fwrite(tmp, chunk, 1, aout);
 		left -= chunk;
 		last += chunk;
@@ -891,6 +913,45 @@ void emseg(struct object *obj, uint8_t seg)
 			// read 2 bytes
 			fread(tmp, 2, 1, bin);
 			value = rlend(tmp);
+			
+			if (next.type == 1) {
+				// relocate to segment
+				// idealy, the address should point to the same byte as it did pre linking
+				if (value >= 16 + obj->text_size + obj->data_size) {
+					// points to bss segment
+					value -= 16 + obj->text_size + obj->data_size;
+					value += obj->bss_base;
+				} else if (value >= 16 + obj->text_size) {
+					value -= 16 + obj->text_size;
+					value += obj->data_base;
+				} else {
+					value -= 16;
+					value += obj->text_base;
+				}
+				rsize++;
+			} else {
+				// relocate to external
+				ext = getref(next.type, obj);
+				if (!ext)
+					error("invalid external number", NULL);
+				
+				value += ext->value;
+				
+				if (ext->type > 0 && ext->type < 4)
+					rsize++;
+			}
+			
+			// write the binary
+			printf("	emitting patch of %04x,%d\n", value, next.type);
+			wlend(tmp, value);
+			fwrite(tmp, 2, 1, aout);
+			
+			// update trackers
+			left -= 2;
+			last += 2;
+			
+			// grab next
+			snext(&next);
 		}
 	}
 	
