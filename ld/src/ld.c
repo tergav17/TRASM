@@ -35,14 +35,9 @@ char newext;
 
 /* stream stuff */
 FILE *relf;
-FILE *extf;
 uint16_t reloc_rec;
-uint16_t reloc_size;
-uint16_t extrn_rec;
-uint16_t extrn_size;
 
 struct tval reloc_last;
-struct tval extrn_last;
 
 uint16_t rsize;
 
@@ -751,7 +746,6 @@ void sfix()
 void sclose()
 {
 	xfclose(relf);
-	xfclose(extf);
 }
 
 /*
@@ -763,41 +757,14 @@ void sopen(struct object *obj)
 {
 	// open objects
 	relf = xoopen(obj);
-	extf = xoopen(obj);
 	
 	// first one jumps to relocation table
 	fread(header, 16, 1, relf);
 	xfseek(relf, rlend(&header[0x0C]) - 16, SEEK_CUR);
 	
-	// next one to external table
-	fread(header, 16, 1, extf);
-	xfseek(extf, rlend(&header[0x0C]) - 16, SEEK_CUR);
-	skipsg(extf, RELOC_REC_SIZE);
-	skipsg(extf, SYMBOL_REC_SIZE);
-	
 	// now we read in the number of records for each
 	fread(tmp, 2, 1, relf);
-	reloc_size = reloc_rec = rlend(tmp);
-	
-	fread(tmp, 2, 1, extf);
-	extrn_size = extrn_rec = rlend(tmp);
-
-	// start reading values in
-	reloc_last.value = 0;
-	extrn_last.value = 0;
-	
-	if (reloc_rec) {
-		fread(tmp, RELOC_REC_SIZE, 1, relf);
-		reloc_last.value = rlend(tmp);
-		reloc_rec--;
-	}
-	
-	if (extrn_rec) {
-		fread(tmp, EXTRN_REC_SIZE, 1, extf);
-		extrn_last.type = tmp[0];
-		extrn_last.value = rlend(tmp + 1);
-		extrn_rec--;
-	}
+	reloc_rec = rlend(tmp);
 }
 
 /*
@@ -807,43 +774,17 @@ void sopen(struct object *obj)
  */
 void snext(struct tval *out)
 {
-	// the theory of operation here is to splice the two streams together
-	// values will come out lowest to highest
-	
-	// check reloc stream
-	if (reloc_last.value && reloc_last.value <= extrn_last.value) {
-		out->value = reloc_last.value;
-		out->type = 1;
-		
-		reloc_last.value = 0;
-		if (reloc_rec) {
-			fread(tmp, RELOC_REC_SIZE, 1, relf);
-			reloc_last.value = rlend(tmp);
-			reloc_rec--;
-		}
-		
-		return;
+	if (reloc_rec) {
+		reloc_rec--;
+		fread(tmp, 3, 1, relf);
+		out->type = tmp[0];
+		out->value = rlend(tmp + 1);
+	} else {
+		out->value = 0;
+		out->type = 0;
 	}
 	
-	// check extern stream
-	if (extrn_last.value) {
-		out->value = extrn_last.value;
-		out->type = extrn_last.type;
-		
-		extrn_last.value = 0;
-		if (extrn_rec) {
-			fread(tmp, EXTRN_REC_SIZE, 1, extf);
-			extrn_last.type = tmp[0];
-			extrn_last.value = rlend(tmp + 1);
-			extrn_rec--;
-		}
 
-		return;
-	}
-
-	// both streams are empty, return 0
-	out->value = 0;
-	out->type = 0;
 }
 
 /*
@@ -858,8 +799,6 @@ void emseg(struct object *obj, uint8_t seg)
 	struct tval next;
 	struct extrn *ext;
 	uint16_t skip, last, chunk, left, value;
-	
-	printf("emmiting segment %d of %s\n", seg, obj->fname);
 	
 	// open up the object binary and stream
 	bin = xoopen(obj);
@@ -887,11 +826,16 @@ void emseg(struct object *obj, uint8_t seg)
 		// figure out how many bytes to read this chunk
 		if (next.value) {
 			// sanity check
-			if (last > next.value)
+			if (last > next.value) {
 				error("backwards relocation", NULL);
+			}
 			
 			chunk =  next.value - last;
 		} else 
+			chunk = left;
+		
+		// make sure we don't overdo it
+		if (chunk > left)
 			chunk = left;
 		
 		// make sure we aren't reading more than 512 bytes
@@ -900,13 +844,12 @@ void emseg(struct object *obj, uint8_t seg)
 		
 		// transfer to binary
 		fread(tmp, chunk, 1, bin);
-		printf("	emitting chunk of %d size starting with %02x\n", chunk, tmp[0]);
 		fwrite(tmp, chunk, 1, aout);
 		left -= chunk;
 		last += chunk;
 		
 		// see if we should do a relocation
-		if (next.value == last) {
+		if (next.value == last && left) {
 			if (left < 2)
 				error("cannot relocate byte", NULL);
 			
@@ -914,19 +857,30 @@ void emseg(struct object *obj, uint8_t seg)
 			fread(tmp, 2, 1, bin);
 			value = rlend(tmp);
 			
-			if (next.type == 1) {
+			if (next.type > 0 && next.type < 4) {
 				// relocate to segment
 				// idealy, the address should point to the same byte as it did pre linking
-				if (value >= 16 + obj->text_size + obj->data_size) {
-					// points to bss segment
-					value -= 16 + obj->text_size + obj->data_size;
-					value += obj->bss_base;
-				} else if (value >= 16 + obj->text_size) {
-					value -= 16 + obj->text_size;
-					value += obj->data_base;
-				} else {
-					value -= 16;
-					value += obj->text_base;
+				switch (next.type) {
+					case 3:
+						// points to bss segment
+						value -= 16 + obj->text_size + obj->data_size;
+						value += obj->bss_base;
+						break;
+			
+					case 2:
+						// points to data segment
+						value -= 16 + obj->text_size;
+						value += obj->data_base;
+						break;
+			
+					case 1:
+						// points to text segment
+						value -= 16;
+						value += obj->text_base;
+						
+					default:
+						break;
+				
 				}
 				rsize++;
 			} else {
@@ -942,7 +896,6 @@ void emseg(struct object *obj, uint8_t seg)
 			}
 			
 			// write the binary
-			printf("	emitting patch of %04x,%d\n", value, next.type);
 			wlend(tmp, value);
 			fwrite(tmp, 2, 1, aout);
 			

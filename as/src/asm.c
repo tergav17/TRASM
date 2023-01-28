@@ -58,25 +58,21 @@ int loc_cnt;
 struct global *glob_table;
 
 /* head of relocation tables */
-struct rheader textr;
-struct rheader datar;
-struct eheader texte;
-struct eheader datae; 
-
-/* extern counter */
-uint8_t extn;
+struct header textr;
+struct header datar;
 
 /* record keeping */
 uint16_t reloc_rec;
 uint16_t glob_rec;
-uint16_t extrn_rec;
 
 /* telemetry stuff */
 int sym_count;
 int loc_count;
 int glob_count;
 int reloc_count;
-int extrn_count;
+
+/* extern number */
+uint8_t extn;
 /*
  * checks if a string is equal
  * string a is read as lower case
@@ -141,31 +137,12 @@ struct reloc *asm_alloc_reloc()
 	// allocate start of relocation table
 	reloc_count++;
 	new = (struct reloc *) asm_alloc(sizeof(struct reloc));
-	for (i = 0; i < RELOC_SIZE; i++) new->off[i] = 255;
+	for (i = 0; i < RELOC_SIZE; i++) new->toff[i].off = 255;
 	new->next = NULL;
 	
 	return new;
 }
 
-/*
- * creates a new extrn struct and inits it
- *
- * returns new object
- */
-struct extrn *asm_alloc_extrn()
-{
-	struct extrn *new;
-	int i;
-	
-	// allocate start of relocation table
-	extrn_count++;
-	new = (struct extrn *) asm_alloc(sizeof(struct extrn));
-	for (i = 0; i < EXTRN_SIZE; i++) new->toff[i].off = 255;
-	
-	new->next = NULL;
-	
-	return new;
-}
 /*
  * resets all allocation stuff
  */
@@ -180,7 +157,7 @@ void asm_reset()
 	sym_table = (struct symbol *) asm_alloc(sizeof(struct symbol));
 	sym_table->parent = NULL;
 	
-	// allocate relocation and extrn tables
+	// allocate relocation tables
 	textr.last = 0;
 	textr.index = 0;
 	textr.head = asm_alloc_reloc();
@@ -189,22 +166,13 @@ void asm_reset()
 	datar.index = 0;
 	datar.head = asm_alloc_reloc();
 	datar.tail = datar.head;
-	
-	texte.last = 0;
-	texte.index = 0;
-	texte.head = asm_alloc_extrn();
-	texte.tail = texte.head;
-	datae.last = 0;
-	datae.index = 0;
-	datae.head = asm_alloc_extrn();
-	datae.tail = datae.head;
+
 	
 	// count memory consumption
 	sym_count = 0;
 	loc_count = 0;
 	glob_count = 0;
 	reloc_count = 0;
-	extrn_count = 0;
 	
 	// externs start at 5
 	extn = 5;
@@ -656,18 +624,19 @@ void asm_glob(struct symbol *sym)
 }
 
 /*
- * adds an address into a extern table, extending it if needed
+ * adds an address into a relocation table, extending it if needed
  *
- * tab = extrn table
+ * tab = reloc table
  * target = address to add
  */
-void asm_extern(struct eheader *tab, uint16_t addr, uint8_t type)
+void asm_reloc(struct header *tab, uint16_t addr, uint8_t type)
 {
 	uint16_t diff;
 	uint8_t i, next;
 	
-	if (addr <= tab->last)
-		asm_error("backwards extern");
+	if (addr < tab->last) 
+		asm_error("backwards reloc");
+	
 	diff = addr - tab->last;
 	
 	// grab the initial index
@@ -685,47 +654,6 @@ void asm_extern(struct eheader *tab, uint16_t addr, uint8_t type)
 		tab->tail->toff[i++].off = next;
 	
 		// see if another table is needed
-		if (i == EXTRN_SIZE) {
-			i = 0;
-			tab->tail->next = asm_alloc_extrn();
-			tab->tail = tab->tail->next;
-		}
-	} while (next == 254);
-
-	// set the index back
-	tab->index = i;
-	extrn_rec++;
-}
-
-/*
- * adds an address into a relocation table, extending it if needed
- *
- * tab = relocation table
- * target = address to add
- */
-void asm_reloc(struct rheader *tab, uint16_t addr)
-{
-	uint16_t diff;
-	uint8_t i, next;
-	
-	if (addr < tab->last)
-		asm_error("backwards relocation");
-	diff = addr - tab->last;
-	
-	// grab the initial index
-	i = tab->index;
-	do {
-		if (diff >= 254) {
-			diff -= 254;
-			next = 254;
-		} else {
-			next = diff;
-		}
-		
-		// set the value
-		tab->tail->off[i++] = next;
-	
-		// see if another table is needed
 		if (i == RELOC_SIZE) {
 			i = 0;
 			tab->tail->next = asm_alloc_reloc();
@@ -735,8 +663,10 @@ void asm_reloc(struct rheader *tab, uint16_t addr)
 
 	// set the index back
 	tab->index = i;
+	tab->last = addr;
 	reloc_rec++;
 }
+
 
 /*
  * outputs a relocation table to a.out
@@ -744,32 +674,6 @@ void asm_reloc(struct rheader *tab, uint16_t addr)
  * tab = relocation table
  */
 void asm_reloc_out(struct reloc *tab, uint16_t base)
-{
-	int i;
-
-	i = 0;
-	while (tab) {
-		base += tab->off[i];
-		if (tab->off[i] == 255) break;
-		
-		if (tab->off[i] != 254) {
-			sio_out(base & 0xFF);
-			sio_out(base >> 8);
-		}
-		
-		if (++i > RELOC_SIZE) {
-			tab = tab->next;
-			i = 0;
-		}
-	}
-}
-
-/*
- * outputs a relocation table to a.out
- *
- * tab = relocation table
- */
-void asm_extern_out(struct extrn *tab, uint16_t base)
 {
 	int i;
 	
@@ -1417,32 +1321,16 @@ void asm_emit_addr(uint16_t size, uint16_t value, uint8_t type)
 	
 	} else {
 		
-		if (type > 0 && type < 4 && asm_pass) {
+		if (((type > 0 && type < 4) || type > 4) && asm_pass) {
 			
 			// relocate!
 			switch (asm_seg) {
 				case 1:
-					asm_reloc(&textr, asm_address);
+					asm_reloc(&textr, asm_address, type);
 					break;
 					
 				case 2:
-					asm_reloc(&datar, asm_address - text_top);
-					break;
-					
-				default:
-					asm_error("invalid segment");
-			}
-		}
-		
-		if (type > 4 && asm_pass) {
-			// external!
-			switch (asm_seg) {
-				case 1:
-					asm_extern(&texte, asm_address, type);
-					break;
-					
-				case 2:
-					asm_extern(&datae, asm_address - text_top, type);
+					asm_reloc(&datar, asm_address - text_top, type);
 					break;
 					
 				default:
@@ -2614,12 +2502,18 @@ void asm_meta()
 	struct global *glob;
 	
 	// output size of reloc records
+	reloc_rec++;
 	sio_out(reloc_rec & 0xFF);
 	sio_out(reloc_rec >> 8);
 				
 	// output reloc table
 	asm_reloc_out(textr.head, 0);
 	asm_reloc_out(datar.head, text_top);
+	
+	// output terminator
+	sio_out(0);
+	sio_out(0);
+	sio_out(0);
 	
 	// output size of global records
 	sio_out(glob_rec & 0xFF);
@@ -2642,19 +2536,6 @@ void asm_meta()
 		
 		glob = glob->next;
 	}
-	
-	// output size of extern records
-	sio_out(extrn_rec & 0xFF);
-	sio_out(extrn_rec >> 8);
-
-	// output reloc table
-	asm_extern_out(texte.head, 0);
-	asm_extern_out(datae.head, text_top);
-	
-	// end it all with a few zeros
-	sio_out(0);
-	sio_out(0);
-	sio_out(0);
 }
 
 /*
@@ -2684,7 +2565,7 @@ void asm_assemble(char flagg, char flagv)
 	loc_cnt = 0;
 	
 	// reset records
-	extrn_rec = glob_rec = reloc_rec = 0;
+	glob_rec = reloc_rec = 0;
 	
 	// reset if and true depth
 	ifdepth = trdepth = 0;
@@ -2708,7 +2589,7 @@ void asm_assemble(char flagg, char flagv)
 			if (!asm_pass) {
 				// first pass -> second pass
 				if (flagv)
-					printf("first pass done, %d Z80 bytes used (%d:%d:%d:%d)\n", (18 * sym_count) + (6 * loc_count) + (4 * glob_count) + ((2 + RELOC_SIZE) * reloc_count), sym_count, loc_count, glob_count, reloc_count);
+					printf("first pass done, %d Z80 bytes used (%d:%d:%d:%d)\n", (18 * sym_count) + (6 * loc_count) + (4 * glob_count) + ((2 + RELOC_SIZE*2) * reloc_count), sym_count, loc_count, glob_count, reloc_count);
 				asm_pass++;
 				loc_cnt = 0;
 				
@@ -2763,7 +2644,7 @@ void asm_assemble(char flagg, char flagv)
 			} else {
 				// emit relocation data and symbol stuff
 				if (flagv)
-					printf("second pass done, %d Z80 bytes used (%d:%d:%d:%d)\n", (18 * sym_count) + (6 * loc_count) + (4 * glob_count)  + ((2 + RELOC_SIZE) * reloc_count), sym_count, loc_count, glob_count, reloc_count);
+					printf("second pass done, %d Z80 bytes used (%d:%d:%d:%d)\n", (18 * sym_count) + (6 * loc_count) + (4 * glob_count)  + ((2 + RELOC_SIZE*2) * reloc_count), sym_count, loc_count, glob_count, reloc_count);
 				sio_append();
 				
 				// output metablock

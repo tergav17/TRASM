@@ -2,3 +2,4 @@ as_r
 ld_r
 a.out
 *.tmp
+*.dasm

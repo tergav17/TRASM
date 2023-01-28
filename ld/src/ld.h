@@ -12,8 +12,7 @@
 #define SYMBOL_NAME_SIZE 9
 #define SYMBOL_REC_SIZE ((SYMBOL_NAME_SIZE-1)+3)
 
-#define RELOC_REC_SIZE 2
-#define EXTRN_REC_SIZE 3
+#define RELOC_REC_SIZE 3
 
 /* structs */
 
