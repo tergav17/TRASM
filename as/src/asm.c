@@ -144,41 +144,6 @@ struct reloc *asm_alloc_reloc()
 }
 
 /*
- * resets all allocation stuff
- */
-void asm_reset()
-{	
-	
-	sym_table = NULL;
-	loc_table = NULL;
-	glob_table = NULL;
-	
-	// allocate empty table
-	sym_table = (struct symbol *) asm_alloc(sizeof(struct symbol));
-	sym_table->parent = NULL;
-	
-	// allocate relocation tables
-	textr.last = 0;
-	textr.index = 0;
-	textr.head = asm_alloc_reloc();
-	textr.tail = textr.head;
-	datar.last = 0;
-	datar.index = 0;
-	datar.head = asm_alloc_reloc();
-	datar.tail = datar.head;
-
-	
-	// count memory consumption
-	sym_count = 0;
-	loc_count = 0;
-	glob_count = 0;
-	reloc_count = 0;
-	
-	// externs start at 5
-	extn = 5;
-}
-
-/*
  * moves the contents of token_buf into token_cache
  */
 void asm_token_cache(char *token_cache)
@@ -521,6 +486,44 @@ struct symbol *asm_sym_update(struct symbol *table, char *sym, char type, struct
 }
 
 /*
+ * resets all allocation stuff
+ */
+void asm_reset()
+{	
+	
+	sym_table = NULL;
+	loc_table = NULL;
+	glob_table = NULL;
+	
+	// allocate empty table
+	sym_table = (struct symbol *) asm_alloc(sizeof(struct symbol));
+	sym_table->parent = NULL;
+	
+	asm_sym_update(sym_table, "sys", 1, NULL, 0x0005);
+	asm_sym_update(sym_table, "header", 1, NULL, 0x0000);
+	
+	// allocate relocation tables
+	textr.last = 0;
+	textr.index = 0;
+	textr.head = asm_alloc_reloc();
+	textr.tail = textr.head;
+	datar.last = 0;
+	datar.index = 0;
+	datar.head = asm_alloc_reloc();
+	datar.tail = datar.head;
+
+	
+	// count memory consumption
+	sym_count = 0;
+	loc_count = 0;
+	glob_count = 0;
+	reloc_count = 0;
+	
+	// externs start at 5
+	extn = 5;
+}
+
+/*
  * appends a local symbol to the local table
  *
  * label = label # (0-9)
@@ -608,8 +611,9 @@ void asm_glob(struct symbol *sym)
 		curr = glob_table;
 		
 		while (1) {
+			// if the symbol already is glob, just ignore it
 			if (curr->symbol == sym)
-				asm_error("symbol already global");
+				return;
 			
 			if (curr->next) {
 				curr = curr->next;

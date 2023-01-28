@@ -677,10 +677,11 @@ char sdump(char *fname, uint8_t index)
 		fread(&type, 1, 1, f);
 		fread(b, 2, 1, f);
 		
-		// if the type is external, we ignore it
+		// if the type is external, skip it for now
 		if (type > 4)
 			continue;
 		
+		glob_rec++;
 		ext = getext((char *) tmp);
 		
 		// if an external can't be found, move on to the next symbol
@@ -705,13 +706,52 @@ char sdump(char *fname, uint8_t index)
 }
 
 /*
- * fixes symbols based on what segment they are in
+ * relocates a symbol value to its correct place in the relocated object
+ *
+ * value = symbol value
+ * type = symbol type
+ * obj = source object
+ */
+uint16_t sreloc(uint16_t value, uint8_t type, struct object *obj)
+{
+	// if it is absolute, do nothing
+	if (type == 4)
+		return value;
+	
+	// relocate to address 0
+	value -= obj->org + 16;
+	
+	switch (type) {
+		
+		case 0:
+			error("undefined symbol", NULL);
+		
+		case 1:
+			return value + obj->text_base;
+			
+		case 2:
+			value -= obj->text_size;
+			return value + obj->data_base;
+			
+		case 3:
+			value -= obj->text_size + obj->data_size;
+			return value + obj->bss_base;
+			
+		default:
+			error("external symbol", NULL);
+	}
+	
+	// we shouldn't be able to get here
+	return 0;
+}
+
+/*
+ * fixes external symbols based on what segment they are in
  * this is to be run after bases are computed
  */
 void sfix()
 {
 	struct extrn *ext;
-	uint16_t value;
 	
 	// fix every symbol
 	for (ext = ext_table; ext; ext = ext->next) {
@@ -720,36 +760,49 @@ void sfix()
 		if (!ext->source)
 			continue;
 		
-		value = ext->value;
-		// fix segments
-		if (ext->type != 4) {
-			// relocate to address 0
-			value -= ext->source->org + 16;
+		ext->value = sreloc(ext->value, ext->type, ext->source);
+	}
+}
+
+/*
+ * copy all symbols from source objects to final object
+ */
+void scopy()
+{
+	struct object *obj;
+	uint16_t nsym, value;
+	FILE *f;
+	
+	for (obj = obj_table; obj; obj = obj->next) {
+		f = xoopen(obj);
+		
+		// jump to symbol table
+		fread(header, 16, 1, f);
+		xfseek(f, rlend(&header[0x0C]) - 16, SEEK_CUR);
+		skipsg(f, RELOC_REC_SIZE);
+		
+		fread(tmp, 2, 1, f);
+		nsym = rlend(tmp);
+		
+		while (nsym--) {
+			// read in symbol record
+			fread(tmp, SYMBOL_REC_SIZE, 1, f);
 			
-			switch (ext->type) {
-				
-				case 0:
-					error("symbol %s is undefined", ext->name);
-				
-				case 1:
-					value = value + ext->source->text_base;
-					break;
-					
-				case 2:
-					value -= ext->source->text_size;
-					value +=  ext->source->data_base;
-					break;
-					
-				case 3:
-					value -= ext->source->text_size + ext->source->data_size;
-					value += ext->source->bss_base;
-					break;
-					
-				default:
-					error("symbol %s is external", ext->name);
-			}
+			// skip external symbols
+			if (tmp[SYMBOL_REC_SIZE-3] > 4)
+				continue;
+			
+			value = rlend(&tmp[SYMBOL_REC_SIZE-2]);
+			
+			// relocate value to proper place
+			value = sreloc(value, tmp[SYMBOL_REC_SIZE-3], obj);
+			
+			// write it out
+			wlend(&tmp[SYMBOL_REC_SIZE-2], value);
+			fwrite(tmp, SYMBOL_REC_SIZE, 1, aout);
 		}
-		ext->value = value;
+		
+		xfclose(f);
 	}
 }
 
@@ -1022,6 +1075,7 @@ int main(int argc, char *argv[])
 		// if we link in any new externals, we run the loop again
 		sclear();		
 		newext = 0;
+		glob_rec = 0;
 		for (i = 1; i < argc; i++) {
 			if (argv[i][0] != '-') {
 				o = 0;
@@ -1115,6 +1169,16 @@ int main(int argc, char *argv[])
 	// write terminator
 	tmp[0] = tmp[1] = tmp[2] = 0;
 	fwrite(tmp, 3, 1, aout);
+	
+	if (flags) {
+		// write empty symbol table
+		fwrite(tmp, 2, 1, aout);
+	} else {
+		// write actual symbol table
+		wlend(tmp, glob_rec);
+		fwrite(tmp, 2, 1, aout);
+		scopy();
+	}
 	
 	// close and move output file
 	xfclose(aout);
