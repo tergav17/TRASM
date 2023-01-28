@@ -30,16 +30,23 @@ struct archive *arc_tail;
 /* output binary stuff */
 FILE *aout;
 
+/* relocation temp file */
+FILE *ltmp;
+char tname[32];
+
 /* state variables */
 char newext; 
 
 /* stream stuff */
 FILE *relf;
+uint16_t nreloc;
+
+/* record keeping */
 uint16_t reloc_rec;
+uint16_t glob_rec;
 
-struct tval reloc_last;
-
-uint16_t rsize;
+/* link address */
+uint16_t laddr;
 
 /* protoville */
 void error(char *msg, char *issue);
@@ -131,6 +138,12 @@ void error(char *msg, char *issue)
 		xfclose(aout);
 		remove("ldout.tmp");
 	}
+	// linking failed, remove relocation temp file
+	if (ltmp) {
+		xfclose(ltmp);
+		remove(tname);
+	}
+	
 	exit(1);
 }
 
@@ -764,7 +777,7 @@ void sopen(struct object *obj)
 	
 	// now we read in the number of records for each
 	fread(tmp, 2, 1, relf);
-	reloc_rec = rlend(tmp);
+	nreloc = rlend(tmp);
 }
 
 /*
@@ -774,8 +787,8 @@ void sopen(struct object *obj)
  */
 void snext(struct tval *out)
 {
-	if (reloc_rec) {
-		reloc_rec--;
+	if (nreloc) {
+		nreloc--;
 		fread(tmp, 3, 1, relf);
 		out->type = tmp[0];
 		out->value = rlend(tmp + 1);
@@ -847,6 +860,7 @@ void emseg(struct object *obj, uint8_t seg)
 		fwrite(tmp, chunk, 1, aout);
 		left -= chunk;
 		last += chunk;
+		laddr += chunk;
 		
 		// see if we should do a relocation
 		if (next.value == last && left) {
@@ -881,8 +895,11 @@ void emseg(struct object *obj, uint8_t seg)
 					default:
 						break;
 				
-				}
-				rsize++;
+				} 
+				reloc_rec++;
+				tmp[0] = next.type;
+				wlend(tmp+1, laddr);
+				fwrite(tmp, RELOC_REC_SIZE, 1, ltmp);
 			} else {
 				// relocate to external
 				ext = getref(next.type, obj);
@@ -891,8 +908,12 @@ void emseg(struct object *obj, uint8_t seg)
 				
 				value += ext->value;
 				
-				if (ext->type > 0 && ext->type < 4)
-					rsize++;
+				if (ext->type > 0 && ext->type < 4) {
+					reloc_rec++;
+					tmp[0] = ext->type;
+					wlend(tmp+1, laddr);
+					fwrite(tmp, RELOC_REC_SIZE, 1, ltmp);
+				}
 			}
 			
 			// write the binary
@@ -902,6 +923,7 @@ void emseg(struct object *obj, uint8_t seg)
 			// update trackers
 			left -= 2;
 			last += 2;
+			laddr += 2;
 			
 			// grab next
 			snext(&next);
@@ -923,7 +945,10 @@ void embin()
 	struct object *obj;
 	
 	// count number of relocations in final binary
-	rsize = 0;
+	reloc_rec = 0;
+	
+	// relocation starts at 0x10
+	laddr = 0x10;
 	
 	// first the text segment is emitted, then data
 	for (seg = 0; seg < 2; seg++) {
@@ -1068,8 +1093,28 @@ int main(int argc, char *argv[])
 	// emit the head
 	emhead();
 	
+	// open temp file
+	sprintf(tname, "/tmp/ltm%d", getpid());
+	ltmp = xfopen(tname, "wb");
+	
 	// emit the binary contents
 	embin();
+	
+	// write relocation header / data
+	wlend(tmp, ++reloc_rec);
+	fwrite(tmp, 2, 1, aout);
+	
+	// append contents of temp file to output
+	xfclose(ltmp);
+	ltmp = xfopen(tname, "rb");
+	while ((i = fread(tmp, 1, 512, ltmp)))
+		fwrite(tmp, 1, i, aout);
+	xfclose(ltmp);
+	remove(tname);
+	
+	// write terminator
+	tmp[0] = tmp[1] = tmp[2] = 0;
+	fwrite(tmp, 3, 1, aout);
 	
 	// close and move output file
 	xfclose(aout);
