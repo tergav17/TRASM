@@ -3,5 +3,6 @@
 .text
 .globl getc
 getc:
-	in	a,(0)
+	ld	b,2
+	call	sys
 	ret

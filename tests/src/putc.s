@@ -3,5 +3,6 @@
 .text
 .globl putc
 putc:
-	out	(0),a
+	ld	b,1
+	call	sys
 	ret

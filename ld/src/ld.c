@@ -718,8 +718,17 @@ uint16_t sreloc(uint16_t value, uint8_t type, struct object *obj)
 	if (type == 4)
 		return value;
 	
+	
+	
 	// relocate to address 0
-	value -= obj->org + 16;
+	value -= obj->org;
+	
+	// this is a header value, don't relocate
+	if (value < 0x10)
+		return value;
+	
+	// pretend header doesn't exist
+	value -= 16;
 	
 	switch (type) {
 		
@@ -926,29 +935,8 @@ void emseg(struct object *obj, uint8_t seg)
 			
 			if (next.type > 0 && next.type < 4) {
 				// relocate to segment
-				// idealy, the address should point to the same byte as it did pre linking
-				switch (next.type) {
-					case 3:
-						// points to bss segment
-						value -= 16 + obj->text_size + obj->data_size;
-						value += obj->bss_base;
-						break;
-			
-					case 2:
-						// points to data segment
-						value -= 16 + obj->text_size;
-						value += obj->data_base;
-						break;
-			
-					case 1:
-						// points to text segment
-						value -= 16;
-						value += obj->text_base;
-						
-					default:
-						break;
+				value = sreloc(value, next.type, obj);
 				
-				} 
 				reloc_rec++;
 				tmp[0] = next.type;
 				wlend(tmp+1, laddr);
