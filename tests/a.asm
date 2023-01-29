@@ -64,45 +64,4 @@ l0029h:
 	nop	
 	nop	
 	nop	
-	dec b	
-	nop	
-	ld l,b	
-	ld h,l	
-	ld l,h	
-	ld l,h	
-	ld l,a	
-	ld e,a	
-	ld (hl),e	
-	nop	
-	ld (bc),a	
-	add hl,hl	
-	nop	
-	ld (hl),b	
-	ld (hl),l	
-	ld (hl),h	
-	ld (hl),e	
-	nop	
-	nop	
-	nop	
-	nop	
-	ld bc,sub_0017h
-	ld h,d	
-	ld (hl),l	
-	ld h,(hl)	
-	ld h,(hl)	
-	ld h,l	
-	ld (hl),d	
-	nop	
-	nop	
-	inc bc	
-	scf	
-	nop	
-	ld (hl),b	
-	ld (hl),l	
-	ld (hl),h	
-	ld h,e	
-	nop	
-	nop	
-	nop	
-	nop	
-	ld bc,sub_0021h
+	defb 001h,000h

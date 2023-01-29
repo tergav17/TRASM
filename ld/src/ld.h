@@ -54,6 +54,8 @@ struct extrn {
 	uint8_t type;
 	struct object *source;
 	
+	uint8_t number; // reference number to undefined externals
+	
 	struct extrn *next; // next external
 };
 

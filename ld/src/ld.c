@@ -44,6 +44,7 @@ uint16_t nreloc;
 /* record keeping */
 uint16_t reloc_rec;
 uint16_t glob_rec;
+uint16_t extrn_rec;
 
 /* link address */
 uint16_t laddr;
@@ -363,6 +364,8 @@ void extprot(struct object *obj, uint8_t *record)
 		ext->value = 0;
 		ext->type = 0;
 		ext->source = NULL;
+		
+		ext->number = 0;
 		
 		// add it to the table
 		if (ext_table) {
@@ -718,8 +721,6 @@ uint16_t sreloc(uint16_t value, uint8_t type, struct object *obj)
 	if (type == 4)
 		return value;
 	
-	
-	
 	// relocate to address 0
 	value -= obj->org;
 	
@@ -813,6 +814,9 @@ void scopy()
 		
 		xfclose(f);
 	}
+	
+	// copy all undefined externals back into the binary
+	
 }
 
 /*
@@ -947,13 +951,23 @@ void emseg(struct object *obj, uint8_t seg)
 				if (!ext)
 					error("invalid external number", NULL);
 				
-				value += ext->value;
-				
-				if (ext->type > 0 && ext->type < 4) {
+				// check to see if this is a valid external or not
+				if (ext->number) {
+					// its undefined, leave the value unchanged and record this in relocations
 					reloc_rec++;
-					tmp[0] = ext->type;
+					tmp[0] = ext->number;
 					wlend(tmp+1, laddr);
 					fwrite(tmp, RELOC_REC_SIZE, 1, ltmp);
+				} else {
+					// its defined, patch in external symbol
+					value += ext->value;
+					
+					if (ext->type > 0 && ext->type < 4) {
+						reloc_rec++;
+						tmp[0] = ext->type;
+						wlend(tmp+1, laddr);
+						fwrite(tmp, RELOC_REC_SIZE, 1, ltmp);
+					}
 				}
 			}
 			
@@ -1002,7 +1016,8 @@ void embin()
 
 int main(int argc, char *argv[])
 {
-	int i, o, udcnt;
+	int i, o;
+	uint8_t extn;
 	struct object *obj;
 	struct extrn *ext;
 	
@@ -1058,6 +1073,10 @@ int main(int argc, char *argv[])
 		}
 	}
 	
+	// reset record keeping
+	glob_rec = 0;
+	extrn_rec = 0;
+	
 	// dump symbols
 	while (newext) {
 		// if we link in any new externals, we run the loop again
@@ -1073,18 +1092,25 @@ int main(int argc, char *argv[])
 	}
 	
 	// check for undefined external 
-	udcnt = 0;
-
+	extn = 5;
+	
+	// either list undefined external, or number it
 	for (ext = ext_table; ext; ext = ext->next) {
 		if (!ext->source) {
-			if (!udcnt) {
-				printf("undefined:\n");
+			extrn_rec++;
+			if (!extn)
+				error("out of externals", NULL);
+			if (!flagr) {
+				if (extn == 5) 
+					printf("undefined:\n");
+				printf("%s\n", ext->name);
+			} else {
+				ext->number = extn;
 			}
-			udcnt++;
-			printf("%s\n", ext->name);
+			extn++;
 		}
 	}
-	if (udcnt)
+	if (extn != 5 && !flagr)
 		error("undefined externals", NULL);
 	
 	// calculate bases / fix symbols
@@ -1158,14 +1184,28 @@ int main(int argc, char *argv[])
 	tmp[0] = tmp[1] = tmp[2] = 0;
 	fwrite(tmp, 3, 1, aout);
 	
+	// if flags, do not write globs but do write externals
 	if (flags) {
-		// write empty symbol table
-		fwrite(tmp, 2, 1, aout);
-	} else {
+		// no globs
+		glob_rec = 0;
+	} 
+	
+	wlend(tmp, glob_rec + extrn_rec);
+	fwrite(tmp, 2, 1, aout);
+	
+	if (flags) {
 		// write actual symbol table
-		wlend(tmp, glob_rec);
-		fwrite(tmp, 2, 1, aout);
 		scopy();
+	}
+	
+	// quickly copy over all externals
+	for (ext = ext_table; ext; ext = ext->next) {
+		if (ext->number) {
+			fwrite(ext->name, SYMBOL_NAME_SIZE-1, 1, aout);
+			tmp[0] = ext->number;
+			tmp[2] = tmp[1] = 0;
+			fwrite(tmp, 3, 1, aout);
+		}
 	}
 	
 	// close and move output file

@@ -2503,6 +2503,7 @@ void asm_fix_seg()
 void asm_meta()
 {
 	int i;
+	uint8_t lextn;
 	struct global *glob;
 	
 	// output size of reloc records
@@ -2525,7 +2526,16 @@ void asm_meta()
 	
 	// output all globals
 	glob = glob_table;
+	lextn = 5;
 	while (glob) {
+		
+		// make sure that we aren't outputting the same external twice
+		// hard to do, but may be possible
+		if (glob->symbol->type > 4)
+			if (glob->symbol->type != lextn++)
+				asm_error("multiple external emissions");
+		
+		
 		// size-1 bytes for the name
 		i = 0;
 		while (i < SYMBOL_NAME_SIZE-1) {
