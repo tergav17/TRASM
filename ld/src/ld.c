@@ -49,8 +49,30 @@ uint16_t extrn_rec;
 /* link address */
 uint16_t laddr;
 
-/* protoville */
-void error(char *msg, char *issue);
+/*
+ * prints error message, and exits
+ *
+ * msg = error message
+ */
+void error(char *msg, char *issue)
+{
+	printf("error: ");
+	printf(msg, issue);
+	printf("\n");
+	// linking failed, remove a.out
+	if (aout) {
+		fclose(aout);
+		remove("ldout.tmp");
+	}
+	// linking failed, remove relocation temp file
+	if (ltmp) {
+		fclose(ltmp);
+		remove(tname);
+	}
+	
+	exit(1);
+}
+
 
 /*
  * alloc memory and check for success
@@ -122,30 +144,6 @@ FILE *xoopen(struct object *obj)
 	xfseek(f, obj->offset, SEEK_CUR);
 	
 	return f;
-}
-
-/*
- * prints error message, and exits
- *
- * msg = error message
- */
-void error(char *msg, char *issue)
-{
-	printf("error: ");
-	printf(msg, issue);
-	printf("\n");
-	// linking failed, remove a.out
-	if (aout) {
-		xfclose(aout);
-		remove("ldout.tmp");
-	}
-	// linking failed, remove relocation temp file
-	if (ltmp) {
-		xfclose(ltmp);
-		remove(tname);
-	}
-	
-	exit(1);
 }
 
 /*
