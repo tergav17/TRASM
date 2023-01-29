@@ -13,6 +13,8 @@
 
 #define RELOC_REC_SIZE 3
 
+#define TMP_FILE "rlout.tmp"
+
 /* structs */
 
 // typed value

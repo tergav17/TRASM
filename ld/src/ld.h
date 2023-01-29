@@ -15,6 +15,8 @@
 
 #define RELOC_REC_SIZE 3
 
+#define TMP_FILE "ldout.tmp"
+
 /* structs */
 
 // object header contains general information able how and where data will be linked

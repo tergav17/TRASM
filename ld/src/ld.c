@@ -46,8 +46,11 @@ uint16_t reloc_rec;
 uint16_t glob_rec;
 uint16_t extrn_rec;
 
+uint8_t extn;
+
 /* link address */
 uint16_t laddr;
+
 
 /*
  * prints error message, and exits
@@ -62,7 +65,7 @@ void error(char *msg, char *issue)
 	// linking failed, remove a.out
 	if (aout) {
 		fclose(aout);
-		remove("ldout.tmp");
+		remove(TMP_FILE);
 	}
 	// linking failed, remove relocation temp file
 	if (ltmp) {
@@ -472,7 +475,7 @@ struct object *chkobj(char *fname, uint8_t index)
 	if (header[0x00] != 0x18 || header[0x01] != 0x0E)
 		error("%s not an object file", fname);
 	
-	if (!(header[0x02] & 0x01))
+	if (!(header[0x02] & 0b01))
 		error("%s not linkable", fname);
 	
 	// read object text base
@@ -553,7 +556,7 @@ void emhead()
 	header[0x01] = 0x0E;
 	
 	// info byte
-	if (flagr) {
+	if (extn > 5) {
 		header[0x02] = 0b01;
 	} else {
 		header[0x02] = 0b11;
@@ -1015,7 +1018,6 @@ void embin()
 int main(int argc, char *argv[])
 {
 	int i, o;
-	uint8_t extn;
 	struct object *obj;
 	struct extrn *ext;
 	
@@ -1154,7 +1156,7 @@ int main(int argc, char *argv[])
 	
 	
 	// begin outputting linked object file
-	aout = xfopen("ldout.tmp", "wb");
+	aout = xfopen(TMP_FILE, "wb");
 	
 	// emit the head
 	emhead();
@@ -1208,5 +1210,5 @@ int main(int argc, char *argv[])
 	
 	// close and move output file
 	xfclose(aout);
-	rename("ldout.tmp", "a.out");
+	rename(TMP_FILE, "a.out");
 } 

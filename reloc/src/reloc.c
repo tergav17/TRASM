@@ -18,10 +18,19 @@ FILE *aout;
 char flagb = 0;
 char flagv = 0;
 char flags = 0;
+char flagh = 0;
 
 /* relocation bases */
-uint16_t base; // primary base
-uint16_t bbase; // option bss base
+uint16_t tbase; // text base
+uint16_t bbase; // optional bss base
+
+/* stream stuff */
+FILE *relf;
+uint16_t nreloc;
+
+/* buffers */
+uint8_t header[16];
+uint8_t tmp[512];
 
 /*
  * prints error message, and exits
@@ -33,10 +42,10 @@ void error(char *msg, char *issue)
 	printf("error: ");
 	printf(msg, issue);
 	printf("\n");
-	// linking failed, remove a.out
+	// reloc failed, remove a.out
 	if (aout) {
 		fclose(aout);
-		remove("rlout.tmp");
+		remove(TMP_FILE);
 	}
 	
 	exit(1);
@@ -185,6 +194,259 @@ uint16_t nparse(char *in)
 	return out;
 }
 
+/*
+ * read little endian, read 2 bytes in little endian format
+ *
+ * b = pointer to first byte
+ * return value of word
+ */
+uint16_t rlend(uint8_t *b)
+{
+	return b[0] + (b[1] << 8);
+}
+
+/*
+ * write little endian, write 2 bytes of little endian format
+ *
+ * value = value to write
+ * b = byte array
+ */
+void wlend(uint8_t *b, uint16_t value)
+{
+	*b = value & 0xFF;
+	*(++b) = value >> 8;
+}
+
+/*
+ * skips over a relocation or symbol seg
+ */
+void skipsg(FILE *f, uint8_t size)
+{
+	uint8_t b[2];
+	
+	fread(b, 2, 1, f);
+	xfseek(f, rlend(b) * size, SEEK_CUR);
+}
+
+/*
+ * closes up the currectly open stream
+ */
+void sclose()
+{
+	xfclose(relf);
+}
+
+/*
+ * opens a streams to read relocation data
+ *
+ * obj = object to open
+ */
+void sopen(char *fname)
+{
+	// open objects
+	relf = xfopen(fname, "rb");
+	
+	// first one jumps to relocation table
+	fread(header, 16, 1, relf);
+	xfseek(relf, rlend(&header[0x0C]) - 16, SEEK_CUR);
+	
+	// now we read in the number of records for each
+	fread(tmp, 2, 1, relf);
+	nreloc = rlend(tmp);
+}
+
+/*
+ * reads the next value in the stream into a tval
+ * also skip externals
+ *
+ * out = pointer to output tval
+ */
+void snext(struct tval *out)
+{
+	do {
+		if (nreloc) {
+			nreloc--;
+			fread(tmp, 3, 1, relf);
+			out->type = tmp[0];
+			out->value = rlend(tmp + 1);
+		} else {
+			out->value = 0;
+			out->type = 0;
+		}
+	} while (out->type > 4);
+}
+
+/*
+ * do relocations
+ */
+void reloc(char *fname)
+{
+	FILE *bin;
+	uint16_t value, bsize, last, chunk;
+	struct tval next;
+	
+	// open and read header
+	bin = xfopen(fname, "rb");
+	fread(header, 16, 1, bin);
+	
+	// start doing checking
+	if (header[0x00] != 0x18 || header[0x01] != 0x0E)
+		error("%s not an object file", fname);
+	
+	if (!(header[0x02] & 0b01))
+		error("%s not relocatable", fname);
+	
+	// account for text base
+	tbase -= rlend(&header[0x03]);
+	
+	// acount for bss base
+	bbase -= rlend(&header[0x03]) + rlend(&header[0x0C]);
+	
+	// set new text base
+	wlend(&header[0x03], tbase);
+	
+	// if we are relocating the bss, we will not be able to further link this object
+	if (flagb) {
+		header[0x02] &= 0b11111110;
+	}
+	
+	// record how many bytes of binary need to be written
+	bsize = rlend(&header[0x0C]) - 16;
+	
+	// write header back to the output
+	fwrite(header, 16, 1, aout);
+	
+	// open stream and start relocation
+	sopen(fname);
+	
+	last = 0x10;
+	snext(&next);
+	while (last < bsize) {
+		if (next.value) {
+			chunk = next.value - last; 
+		} else {
+			chunk = bsize - last;
+		}
+		
+		if (chunk > 512)
+			chunk = 512;
+		
+		fread(tmp, chunk, 1, bin);
+		fwrite(tmp, chunk, 1, aout);
+		last += chunk;
+		
+		if (last == next.value && last < bsize) {
+			if (bsize - last < 2)
+				error("cannot relocate byte", NULL);
+			
+			// read 2 bytes
+			fread(tmp, 2, 1, bin);
+			value = rlend(tmp);
+			
+			// adjust segment
+			switch (next.type) {
+				case 1:
+				case 2:
+					value += tbase;
+					break;
+					
+				case 3:
+					if (flagb)
+						value += bbase;
+					else
+						value += tbase;
+					break;
+					
+				default:
+					error("undefined segment", NULL);
+			}
+			
+			// write the binary
+			wlend(tmp, value);
+			fwrite(tmp, 2, 1, aout);
+			last += 2;
+			
+			// grab next
+			snext(&next);
+		}
+	}
+	
+	sclose();
+	
+	// if we are doing a headless output, don't output relocation or symbols
+	if (flagh)
+		return;
+	
+	// now it is time to move over the relocations
+	// they stay the same, so it is simply a matter of copying
+	fread(tmp, 2, 1, bin);
+	fwrite(tmp, 2, 1, aout);
+	
+	bsize = rlend(tmp);
+	last = 0;
+	while (last < bsize) {
+		chunk = last - bsize;
+		
+		if (chunk > 512 / RELOC_REC_SIZE)
+			chunk = 512 / RELOC_REC_SIZE;
+		
+		fread(tmp, chunk * RELOC_REC_SIZE, 1, bin);
+		fwrite(tmp, chunk * RELOC_REC_SIZE, 1, aout);
+		
+		last += chunk;
+	}
+	
+	// last is the symbol table
+	// symbols will need to be corrected for their new location
+
+	fread(tmp, 2, 1, bin);
+	
+	// if flag s, just don't write a symbol table
+	if (flags) {
+		tmp[0] = tmp[1] = 0;
+		fwrite(tmp, 2, 1, aout);
+		return;
+	} else  {
+		fwrite(tmp, 2, 1, aout);
+	}
+	
+	bsize = rlend(tmp);
+	last = 0;
+	while (last < bsize) {
+		chunk = last - bsize;
+		
+		if (chunk > 512 / SYMBOL_REC_SIZE)
+			chunk = 512 / SYMBOL_REC_SIZE;
+		
+		fread(tmp, chunk * SYMBOL_REC_SIZE, 1, bin);
+		
+		// read value and adjust segment
+		value = rlend(&tmp[SYMBOL_REC_SIZE-2]);
+		switch (tmp[SYMBOL_REC_SIZE-2]) {
+			case 1:
+			case 2:
+				value += tbase;
+				break;
+				
+			case 3:
+				if (flagb)
+					value += bbase;
+				else
+					value += tbase;
+				break;
+				
+			default:
+				break;
+		}
+		wlend(&tmp[SYMBOL_REC_SIZE-2], value);
+		
+		// write back symbol
+		fwrite(tmp, chunk * SYMBOL_REC_SIZE, 1, aout);
+		
+		last += chunk;
+	}
+}
+
 
 int main(int argc, char *argv[])
 {
@@ -220,8 +482,10 @@ int main(int argc, char *argv[])
 						flags++;
 						break;
 						
+					case 'h': // headerless output, text segment is shifted down
+						
 					default:
-						error("invalid option", NULL);
+						usage();
 						break;
 				}
 				o++;
@@ -234,7 +498,7 @@ int main(int argc, char *argv[])
 					break;
 					
 				case 1:
-					base = nparse(argv[i]);
+					tbase = nparse(argv[i]);
 					break;
 					
 				default:
@@ -247,7 +511,18 @@ next_arg:;
 	if (p != 2)
 		usage();
 	
-	// now actually do the reloc
-	printf("source %s, base = %04x\n", src, base);
+	// intro message
+	if (flagv)
+		printf("TRASM relocation tool v%s\n", VERSION);
+	
+	// open output file
+	aout = xfopen(TMP_FILE, "wb");
+	
+	// do relocations
+	reloc(src);
+	
+	// close and move output file
+	xfclose(aout);
+	rename(TMP_FILE, "a.out");
 	
 } 
