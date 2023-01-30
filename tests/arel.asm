@@ -1,15 +1,14 @@
 ; z80dasm 1.1.6
-; command line: z80dasm -l -g 0x0000 -o a.asm a.out
+; command line: z80dasm -l -g 0x1000 -o arel.asm arel.out
 
-	org	00000h
+	org	01000h
 
-l0000h:
-	jr l0010h
+	jr l1010h
 	inc bc	
 	nop	
+	djnz $-59
 	nop	
-sub_0005h:
-	jp l0000h
+	nop	
 	nop	
 	nop	
 	daa	
@@ -18,25 +17,23 @@ sub_0005h:
 	nop	
 	ld d,a	
 	nop	
-l0010h:
-	ld hl,l0029h
-	call sub_0017h
+l1010h:
+	ld hl,01029h
+	call sub_1017h
 	ret	
-sub_0017h:
+sub_1017h:
 	ld a,(hl)	
 	or a	
 	ret z	
-	call sub_0021h
+	call sub_1021h
 	inc hl	
-	jp sub_0017h
-sub_0021h:
+	jp sub_1017h
+sub_1021h:
 	ld b,001h
-	call sub_0005h
+	call 01005h
 	ret	
 	add hl,hl	
-	nop	
-l0029h:
-	ld c,b	
+	djnz l1072h
 	ld h,l	
 	ld l,h	
 	ld l,h	
@@ -76,8 +73,7 @@ l0029h:
 	nop	
 	ld (bc),a	
 	add hl,hl	
-	nop	
-	ld (hl),b	
+	djnz $+114
 	ld (hl),l	
 	ld (hl),h	
 	ld (hl),e	
@@ -85,7 +81,7 @@ l0029h:
 	nop	
 	nop	
 	nop	
-	ld bc,sub_0017h
+	ld bc,sub_1017h
 	ld h,d	
 	ld (hl),l	
 	ld h,(hl)	
@@ -96,8 +92,8 @@ l0029h:
 	nop	
 	inc bc	
 	scf	
-	nop	
-	ld (hl),b	
+	djnz $+114
+l1072h:
 	ld (hl),l	
 	ld (hl),h	
 	ld h,e	
@@ -105,4 +101,4 @@ l0029h:
 	nop	
 	nop	
 	nop	
-	ld bc,sub_0021h
+	ld bc,sub_1021h

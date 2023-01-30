@@ -311,7 +311,7 @@ void reloc(char *fname)
 	}
 	
 	// record how many bytes of binary need to be written
-	bsize = rlend(&header[0x0C]) - 16;
+	bsize = rlend(&header[0x0C]);
 	
 	if (!flagn) {
 		// write header back to the output
@@ -326,7 +326,7 @@ void reloc(char *fname)
 	
 	printf("bsize = %04x (%d)\n", bsize, bsize);
 	
-	last = 0;
+	last = 0x10;
 	snext(&next);
 	while (last < bsize) {
 		if (next.value) {
@@ -423,18 +423,15 @@ void reloc(char *fname)
 	}
 	
 	bsize = rlend(tmp);
-	last = 0;
-	while (last < bsize) {
-		chunk = bsize - last;
+	while (bsize--) {
+
+		printf("transferring 1 symbol recs\n");
 		
-		if (chunk > 512 / SYMBOL_REC_SIZE)
-			chunk = 512 / SYMBOL_REC_SIZE;
-		
-		fread(tmp, chunk * SYMBOL_REC_SIZE, 1, bin);
+		fread(tmp, SYMBOL_REC_SIZE, 1, bin);
 		
 		// read value and adjust segment
 		value = rlend(&tmp[SYMBOL_REC_SIZE-2]);
-		switch (tmp[SYMBOL_REC_SIZE-2]) {
+		switch (tmp[SYMBOL_REC_SIZE-3]) {
 			case 1:
 			case 2:
 				value += tbase;
@@ -453,9 +450,7 @@ void reloc(char *fname)
 		wlend(&tmp[SYMBOL_REC_SIZE-2], value);
 		
 		// write back symbol
-		fwrite(tmp, chunk * SYMBOL_REC_SIZE, 1, aout);
-		
-		last += chunk;
+		fwrite(tmp, SYMBOL_REC_SIZE, 1, aout);
 	}
 }
 

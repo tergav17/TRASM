@@ -345,8 +345,12 @@ void extprot(struct object *obj, uint8_t *record)
 	
 	// make sure number is external
 	number = record[SYMBOL_NAME_SIZE-1];
-	if (number < 5)
+	if (number < 5) {
+		// record that a global symbol has been checked in
+		glob_rec++;
+		
 		return;
+	}
 	
 	// terminate symbol name and search
 	record[SYMBOL_NAME_SIZE-1] = 0;
@@ -685,7 +689,7 @@ char sdump(char *fname, uint8_t index)
 		if (type > 4)
 			continue;
 		
-		glob_rec++;
+		
 		ext = getext((char *) tmp);
 		
 		// if an external can't be found, move on to the next symbol
@@ -1061,6 +1065,9 @@ int main(int argc, char *argv[])
 	// first we set up the external tables
 	newext = 0;
 	
+	// keep track of all globals in checked in objects
+	glob_rec = 0;
+	
 	// check in all object files (but not archives)
 	for (i = 1; i < argc; i++) {
 		if (argv[i][0] != '-') {
@@ -1074,7 +1081,6 @@ int main(int argc, char *argv[])
 	}
 	
 	// reset record keeping
-	glob_rec = 0;
 	extrn_rec = 0;
 	
 	// dump symbols
@@ -1082,7 +1088,6 @@ int main(int argc, char *argv[])
 		// if we link in any new externals, we run the loop again
 		sclear();		
 		newext = 0;
-		glob_rec = 0;
 		for (i = 1; i < argc; i++) {
 			if (argv[i][0] != '-') {
 				o = 0;
@@ -1190,10 +1195,13 @@ int main(int argc, char *argv[])
 		glob_rec = 0;
 	} 
 	
+	if (flagv)
+		printf("symbol output:\n	global: %d\n	external: %d\n", glob_rec, extrn_rec);
+		
 	wlend(tmp, glob_rec + extrn_rec);
 	fwrite(tmp, 2, 1, aout);
 	
-	if (flags) {
+	if (!flags) {
 		// write actual symbol table
 		scopy();
 	}
