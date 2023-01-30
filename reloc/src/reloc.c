@@ -18,7 +18,7 @@ FILE *aout;
 char flagb = 0;
 char flagv = 0;
 char flags = 0;
-char flagh = 0;
+char flagn = 0;
 
 /* relocation bases */
 uint16_t tbase; // text base
@@ -56,11 +56,11 @@ void error(char *msg, char *issue)
  */
 void usage()
 {
-	printf("usage: %s [-sv] [-b base] input_file base\n", argz);
+	printf("usage: %s [-svn] [-b base] input_file base\n", argz);
 	exit(1);
 }
 
-/*
+/* 
  * alloc memory and check for success
  *
  * s = size in bytes
@@ -313,13 +313,20 @@ void reloc(char *fname)
 	// record how many bytes of binary need to be written
 	bsize = rlend(&header[0x0C]) - 16;
 	
-	// write header back to the output
-	fwrite(header, 16, 1, aout);
+	if (!flagn) {
+		// write header back to the output
+		fwrite(header, 16, 1, aout);
+	} else {
+		tbase -= 16;
+		bbase -= 16;
+	}
 	
 	// open stream and start relocation
 	sopen(fname);
 	
-	last = 0x10;
+	printf("bsize = %04x (%d)\n", bsize, bsize);
+	
+	last = 0;
 	snext(&next);
 	while (last < bsize) {
 		if (next.value) {
@@ -331,6 +338,7 @@ void reloc(char *fname)
 		if (chunk > 512)
 			chunk = 512;
 		
+		printf("transferring %d bytes\n", chunk);
 		fread(tmp, chunk, 1, bin);
 		fwrite(tmp, chunk, 1, aout);
 		last += chunk;
@@ -360,6 +368,8 @@ void reloc(char *fname)
 				default:
 					error("undefined segment", NULL);
 			}
+
+			printf("patching 2 bytes\n");
 			
 			// write the binary
 			wlend(tmp, value);
@@ -374,7 +384,7 @@ void reloc(char *fname)
 	sclose();
 	
 	// if we are doing a headless output, don't output relocation or symbols
-	if (flagh)
+	if (flagn)
 		return;
 	
 	// now it is time to move over the relocations
@@ -385,10 +395,12 @@ void reloc(char *fname)
 	bsize = rlend(tmp);
 	last = 0;
 	while (last < bsize) {
-		chunk = last - bsize;
+		chunk = bsize - last;
 		
 		if (chunk > 512 / RELOC_REC_SIZE)
 			chunk = 512 / RELOC_REC_SIZE;
+		
+		printf("transferring %d reloc recs (%d,%d)\n", chunk, last, bsize);
 		
 		fread(tmp, chunk * RELOC_REC_SIZE, 1, bin);
 		fwrite(tmp, chunk * RELOC_REC_SIZE, 1, aout);
@@ -413,7 +425,7 @@ void reloc(char *fname)
 	bsize = rlend(tmp);
 	last = 0;
 	while (last < bsize) {
-		chunk = last - bsize;
+		chunk = bsize - last;
 		
 		if (chunk > 512 / SYMBOL_REC_SIZE)
 			chunk = 512 / SYMBOL_REC_SIZE;
@@ -482,7 +494,9 @@ int main(int argc, char *argv[])
 						flags++;
 						break;
 						
-					case 'h': // headerless output, text segment is shifted down
+					case 'n': // no header, text segment is shifted down
+						flagn++;
+						break;
 						
 					default:
 						usage();
@@ -523,6 +537,6 @@ next_arg:;
 	
 	// close and move output file
 	xfclose(aout);
-	rename(TMP_FILE, "a.out");
+	rename(TMP_FILE, src);
 	
 } 

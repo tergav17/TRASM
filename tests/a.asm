@@ -64,4 +64,5 @@ l0029h:
 	nop	
 	nop	
 	nop	
-	defb 001h,000h
+	dec b	
+	nop	
