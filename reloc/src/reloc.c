@@ -28,6 +28,9 @@ uint16_t bbase; // optional bss base
 FILE *relf;
 uint16_t nreloc;
 
+/* record keeping */
+uint16_t bss_rec;
+
 /* buffers */
 uint8_t header[16];
 uint8_t tmp[512];
@@ -305,13 +308,12 @@ void reloc(char *fname)
 	// set new text base
 	wlend(&header[0x03], tbase);
 	
-	// if we are relocating the bss, we will not be able to further link this object
-	if (flagb) {
-		header[0x02] &= 0b11111110;
-	}
-	
 	// record how many bytes of binary need to be written
 	bsize = rlend(&header[0x0C]);
+	
+	// if we are relocating the bss, the bss will be removed from this object
+	if (flagb)
+		wlend(&header[0x0E], bsize);
 	
 	if (!flagn) {
 		// write header back to the output
@@ -323,9 +325,8 @@ void reloc(char *fname)
 	
 	// open stream and start relocation
 	sopen(fname);
-	
-	printf("bsize = %04x (%d)\n", bsize, bsize);
-	
+
+	bss_rec = 0;
 	last = 0x10;
 	snext(&next);
 	while (last < bsize) {
@@ -337,8 +338,7 @@ void reloc(char *fname)
 		
 		if (chunk > 512)
 			chunk = 512;
-		
-		printf("transferring %d bytes\n", chunk);
+
 		fread(tmp, chunk, 1, bin);
 		fwrite(tmp, chunk, 1, aout);
 		last += chunk;
@@ -363,14 +363,13 @@ void reloc(char *fname)
 						value += bbase;
 					else
 						value += tbase;
+					bss_rec++;
 					break;
 					
 				default:
 					error("undefined segment", NULL);
 			}
 
-			printf("patching 2 bytes\n");
-			
 			// write the binary
 			wlend(tmp, value);
 			fwrite(tmp, 2, 1, aout);
@@ -390,22 +389,18 @@ void reloc(char *fname)
 	// now it is time to move over the relocations
 	// they stay the same, so it is simply a matter of copying
 	fread(tmp, 2, 1, bin);
-	fwrite(tmp, 2, 1, aout);
-	
 	bsize = rlend(tmp);
-	last = 0;
-	while (last < bsize) {
-		chunk = bsize - last;
-		
-		if (chunk > 512 / RELOC_REC_SIZE)
-			chunk = 512 / RELOC_REC_SIZE;
-		
-		printf("transferring %d reloc recs (%d,%d)\n", chunk, last, bsize);
-		
-		fread(tmp, chunk * RELOC_REC_SIZE, 1, bin);
-		fwrite(tmp, chunk * RELOC_REC_SIZE, 1, aout);
-		
-		last += chunk;
+	
+	// subtract bss records if b flag
+	if (flagb)
+		wlend(tmp, bsize - bss_rec);
+	
+	fwrite(tmp, 2, 1, aout);
+
+	while (bsize--) {
+		fread(tmp, RELOC_REC_SIZE, 1, bin);
+		if (!(tmp[0] == 3 && flagb))
+			fwrite(tmp, RELOC_REC_SIZE, 1, aout);
 	}
 	
 	// last is the symbol table
@@ -425,8 +420,6 @@ void reloc(char *fname)
 	bsize = rlend(tmp);
 	while (bsize--) {
 
-		printf("transferring 1 symbol recs\n");
-		
 		fread(tmp, SYMBOL_REC_SIZE, 1, bin);
 		
 		// read value and adjust segment
