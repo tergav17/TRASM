@@ -1,5 +1,5 @@
 ; z80dasm 1.1.6
-; command line: z80dasm -l -g 0x1000 -o arel.asm arel.out
+; command line: z80dasm -l -g 0x1000 -o out/arel.asm out/arel.out
 
 	org	01000h
 

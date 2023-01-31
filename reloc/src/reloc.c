@@ -19,6 +19,7 @@ char flagb = 0;
 char flagv = 0;
 char flags = 0;
 char flagn = 0;
+char flagd = 0;
 
 /* relocation bases */
 uint16_t tbase; // text base
@@ -59,7 +60,7 @@ void error(char *msg, char *issue)
  */
 void usage()
 {
-	printf("usage: %s [-svn] [-b base] input_file base\n", argz);
+	printf("usage: %s [-svd] [-n] [-b base] input_file base\n", argz);
 	exit(1);
 }
 
@@ -299,6 +300,9 @@ void reloc(char *fname)
 	if (!(header[0x02] & 0b01))
 		error("%s not relocatable", fname);
 	
+	// save tbase
+	last = tbase;
+	
 	// account for text base
 	tbase -= rlend(&header[0x03]);
 	
@@ -306,7 +310,7 @@ void reloc(char *fname)
 	bbase -= rlend(&header[0x03]) + rlend(&header[0x0C]);
 	
 	// set new text base
-	wlend(&header[0x03], tbase);
+	wlend(&header[0x03], last);
 	
 	// record how many bytes of binary need to be written
 	bsize = rlend(&header[0x0C]);
@@ -431,9 +435,10 @@ void reloc(char *fname)
 				break;
 				
 			case 3:
-				if (flagb)
+				if (flagb) {
 					value += bbase;
-				else
+					tmp[SYMBOL_REC_SIZE-3] = 4;
+				} else
 					value += tbase;
 				break;
 				
@@ -484,6 +489,10 @@ int main(int argc, char *argv[])
 						
 					case 'n': // no header, text segment is shifted down
 						flagn++;
+						break;
+						
+					case 'r': // move all to data, externals are preserved
+						flagr++;
 						break;
 						
 					default:

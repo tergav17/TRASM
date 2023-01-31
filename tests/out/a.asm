@@ -1,5 +1,5 @@
 ; z80dasm 1.1.6
-; command line: z80dasm -l -g 0x0000 -o a.asm a.out
+; command line: z80dasm -l -g 0x0000 -o out/a.asm out/a.out
 
 	org	00000h
 
