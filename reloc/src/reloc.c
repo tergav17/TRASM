@@ -60,7 +60,7 @@ void error(char *msg, char *issue)
  */
 void usage()
 {
-	printf("usage: %s [-svd] [-n] [-b base] input_file base\n", argz);
+	printf("usage: %s [-vsd] [-n] [-b base] input_file base\n", argz);
 	exit(1);
 }
 
@@ -491,8 +491,8 @@ int main(int argc, char *argv[])
 						flagn++;
 						break;
 						
-					case 'r': // move all to data, externals are preserved
-						flagr++;
+					case 'd': // move all to data, externals are preserved
+						flagd++;
 						break;
 						
 					default:
