@@ -31,6 +31,7 @@ uint16_t nreloc;
 
 /* record keeping */
 uint16_t bss_rec;
+uint16_t td_rec;
 
 /* buffers */
 uint8_t header[16];
@@ -319,6 +320,10 @@ void reloc(char *fname)
 	if (flagb)
 		wlend(&header[0x0E], bsize);
 	
+	// if we are linking the text/data as static, those segments will be moved into data
+	if (flagd)
+		wlend(&header[0x0A], 0);
+	
 	if (!flagn) {
 		// write header back to the output
 		fwrite(header, 16, 1, aout);
@@ -330,7 +335,7 @@ void reloc(char *fname)
 	// open stream and start relocation
 	sopen(fname);
 
-	bss_rec = 0;
+	td_rec = bss_rec = 0;
 	last = 0x10;
 	snext(&next);
 	while (last < bsize) {
@@ -360,6 +365,7 @@ void reloc(char *fname)
 				case 1:
 				case 2:
 					value += tbase;
+					td_rec++;
 					break;
 					
 				case 3:
@@ -393,17 +399,27 @@ void reloc(char *fname)
 	// now it is time to move over the relocations
 	// they stay the same, so it is simply a matter of copying
 	fread(tmp, 2, 1, bin);
-	bsize = rlend(tmp);
+	value = bsize = rlend(tmp);
 	
-	// subtract bss records if b flag
+	// subtract bss records if static bss relocation
 	if (flagb)
-		wlend(tmp, bsize - bss_rec);
+		value -= bss_rec;
 	
+	// subtract t/d records if static t/d relocation
+	if (flagd)
+		value -= td_rec;
+	
+	wlend(tmp, value);
 	fwrite(tmp, 2, 1, aout);
 
 	while (bsize--) {
 		fread(tmp, RELOC_REC_SIZE, 1, bin);
-		if (!(tmp[0] == 3 && flagb))
+		// omit record if being statically relocated
+		if (tmp[0] == 3 && flagb) {
+			continue;
+		} else if ((tmp[0] == 1 || tmp[0] == 2) && flagd) {
+			continue;
+		} else
 			fwrite(tmp, RELOC_REC_SIZE, 1, aout);
 	}
 	
@@ -422,6 +438,7 @@ void reloc(char *fname)
 	}
 	
 	bsize = rlend(tmp);
+	
 	while (bsize--) {
 
 		fread(tmp, SYMBOL_REC_SIZE, 1, bin);
@@ -431,6 +448,8 @@ void reloc(char *fname)
 		switch (tmp[SYMBOL_REC_SIZE-3]) {
 			case 1:
 			case 2:
+				if (flagd)
+					tmp[SYMBOL_REC_SIZE-3] = 4;
 				value += tbase;
 				break;
 				
@@ -520,6 +539,10 @@ int main(int argc, char *argv[])
 next_arg:;
 	}
 	if (p != 2)
+		usage();
+	
+	// check for invalid configurations
+	if (flagn && (flagd || flags))
 		usage();
 	
 	// intro message
