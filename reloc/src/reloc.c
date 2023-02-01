@@ -61,7 +61,7 @@ void error(char *msg, char *issue)
  */
 void usage()
 {
-	printf("usage: %s [-vsd] [-n] [-b base] input_file base\n", argz);
+	printf("usage: %s [-vsd] [-n] [-b base] object.o base\n", argz);
 	exit(1);
 }
 

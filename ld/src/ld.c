@@ -51,6 +51,9 @@ uint8_t extn;
 /* link address */
 uint16_t laddr;
 
+/* arg zero */
+char *argz;
+
 
 /*
  * prints error message, and exits
@@ -1019,11 +1022,22 @@ void embin()
 	}
 }
 
+/*
+ * print usage message
+ */
+void usage()
+{
+	printf("usage: %s [-vs] [-r] object.o ...\n", argz);
+	exit(1);
+}
+
 int main(int argc, char *argv[])
 {
 	int i, o;
 	struct object *obj;
 	struct extrn *ext;
+	
+	argz = argv[0];
 	
 	// flag switch
 	for (i = 1; i < argc; i++) {
@@ -1045,7 +1059,7 @@ int main(int argc, char *argv[])
 						break;
 						
 					default:
-						error("invalid option", NULL);
+						usage();
 						break;
 				}
 				o++;
@@ -1053,9 +1067,17 @@ int main(int argc, char *argv[])
 		}
 	}
 	
+	// check to see if there are any actual arguments
+	o = 1;
+	for (i = 1; i < argc; i++)
+		if (argv[i][0] != '-')
+			o = 0;
+	if (o)
+		usage();
+	
 	// check for invalid configurations
 	if (flags && flagr)
-		error("invalid configuration", NULL);
+		usage();
 	
 	
 	// intro message
