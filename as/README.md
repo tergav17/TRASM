@@ -33,3 +33,11 @@ label_1:
 1:
   jp 1b
 ```
+
+## Directives
+A small number of directives are included in the assembler to make configuration and data generation easier
+
+| Directive | Description |
+| --------------------------- | ------- |
+| `.def (type)[#] exp1, exp2, ...` | Directly defines data, based on the type. Each element of the definition will take the size of the type, zero padding if needed. A set of square brackets after the type can be used to identify a set number of elements to be created |
+| `.defl (type)[#] (name) exp, ...` | Same as `def`, but will create a label with the defined type |
