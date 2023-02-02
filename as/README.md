@@ -41,3 +41,11 @@ A small number of directives are included in the assembler to make configuration
 | --------------------------- | ------- |
 | `.def (type)[#] exp1, exp2, ...` | Directly defines data, based on the type. Each element of the definition will take the size of the type, zero padding if needed. A set of square brackets after the type can be used to identify a set number of elements to be created |
 | `.defl (type)[#] (name) exp, ...` | Same as `def`, but will create a label with the defined type |
+| `.text`                           | Sets the current segment to text |
+| `.data`                           | Sets the current segment to data |
+| `.bss`                            | Sets the current segment to bss |
+| `.if exp`                         | If the exp resolves to 0, skip all until next .endif. Exp must be defined and absolute |
+| `.endif`                          | Marks the end of a `.if` |
+| `.extern`                         | Defines an external symbol |
+| `.globl`                          | Sets a symbol to global, externals cannot be made global |
+| `.type name { type_1, ...}`       | Defines a type, will be elaborated on later |
