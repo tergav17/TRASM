@@ -99,7 +99,7 @@ void strip(char *src)
 	if (header[0x00] != 0x18 || header[0x01] != 0x0E)
 		error("%s not an object file", src);
 	
-	// grab sizes
+	// grab binary size
 	bsize = rlend(&header[0x0C]) - 0x10;
 	
 	// write header
@@ -107,8 +107,37 @@ void strip(char *src)
 	
 	// write out binary section
 	while (bsize) {
+		chunk = bsize;
 		
+		if (chunk > 512)
+			chunk = 512;
+		
+		fread(tmp, chunk, 1, f);
+		fwrite(tmp, chunk, 1, aout);
+		
+		bsize -= chunk;
 	}
+	
+	// read # of relocation recs
+	fread(tmp, 2, 1, f);
+	bsize = rlend(tmp);
+	fwrite(tmp, 2, 1, aout);
+	
+	// write out relocation recs
+	while (bsize) {
+		chunk = bsize;
+		if (chunk > 512 / RELOC_REC_SIZE)
+			chunk = 512 / RELOC_REC_SIZE;
+		
+		fread(tmp, chunk * RELOC_REC_SIZE, 1, f);
+		fwrite(tmp, chunk * RELOC_REC_SIZE, 1, aout);
+		
+		bsize -= chunk;
+	}
+	
+	// write out # of symbols
+	tmp[0] = tmp[1] = 0;
+	fwrite(tmp, 2, 1, aout);
 	
 	// close file
 	xfclose(f);
