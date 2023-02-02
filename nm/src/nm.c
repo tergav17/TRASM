@@ -127,13 +127,102 @@ void skipsg(FILE *f, uint8_t size)
 }
 
 /*
+ * compares two symbols when sorting
+ */
+char symcmp(struct symbol *a, struct symbol *b)
+{
+	char out, *ca, *cb;
+	
+	// compare values or names
+	if (flagv) {
+		out = a->value < b->value;
+	} else {
+		while (*ca == *cb && *ca) {
+			ca++;
+			cb++;
+		}
+		
+		out = *ca < *cb;
+	}
+	
+	// reverse if flagr
+	if (flagr)
+		out = !out;
+	
+	// force low if flagp
+	if (flagp)
+		out = 0;
+	
+	return out;
+}
+
+/*
+ * adds a symbol record to the table, sorting as needed
+ *
+ * 
+ */
+void sadd(uint8_t *rec)
+{
+	int i;
+	char type;
+	struct symbol *new, *sym, *prev;
+	
+	type = rec[SYMBOL_REC_SIZE-3];
+	
+	// skip if showing externals only
+	if (flagg && type < 5)
+		return;
+	
+	// generate new symbol
+	new = (struct symbol *) xalloc(sizeof(struct symbol));
+	
+	new->type = type;
+	new->value = rlend(&rec[SYMBOL_REC_SIZE-2]);
+	
+	for (i = 0; i < SYMBOL_NAME_SIZE-1; i++) {
+		new->name[i] = (char) rec[i];
+	}
+	new->name[i] = 0;
+	new->next = NULL;
+	
+	// if the table is empty, set as table
+	if (!sym_table) {
+		sym_table = new;
+		return;
+	}
+	
+	// see if this should be come the new table;
+	if (symcmp(new, sym_table)) {
+		new->next = sym_table;
+		sym_table = new;
+		return;
+	}
+	
+	// otherwise insert onto table
+	for (sym = sym_table; sym; sym = sym->next) {
+		if (symcmp(new, sym)) {
+			new->next = sym;
+			prev->next = new;
+		}
+		if (!sym->next) {
+			sym->next = new;
+		}
+		prev = sym;
+	}
+	
+}
+
+/*
  * dumps out the symbol table of the object file
  *
  * src = source
  */
-void dump (char *src)
+void dump(char *src)
 {
 	FILE *f;
+	uint16_t nsym;
+	struct symbol *sym;
+	char ename;
 	
 	// read in header
 	f = xfopen(src, "rb");
@@ -147,6 +236,58 @@ void dump (char *src)
 	if (!flagh)
 		printf("object base: %04x entry: %04x size %04x\n", rlend(&header[0x03]), rlend(&header[0x08]), rlend(&header[0x0E]));
 	
+	// skip the data segment
+	xfseek(f, rlend(&header[0x0C]) - 16, SEEK_CUR);
+	
+	// skip the relocation segment
+	skipsg(f, RELOC_REC_SIZE);
+	
+	// get number of symbols
+	fread(tmp, 2, 1, f);
+	nsym = rlend(tmp);
+	
+	// dump them all out
+	while (nsym--) {
+		fread(tmp, SYMBOL_REC_SIZE, 1, f);
+		sadd(tmp);
+	}
+	
+	// print out symbols
+	for (sym = sym_table; sym; sym = sym->next) {
+		// value
+		printf("%04x ", sym->value);
+		
+		ename = 'e';
+		// type
+		switch (sym->type) {
+			case 0:
+				ename = 'u';
+				break;
+				
+			case 1:
+				ename = 't';
+				break;
+				
+			case 2:
+				ename = 'd';
+				break;
+				
+			case 3:
+				ename = 'b';
+				break;
+				
+			case 4:
+				ename = 'a';
+				break;
+				
+			default:
+				break;
+		}
+		
+		// print type and name
+		printf("%c %s\n", ename, sym->name);
+		
+	}
 	
 	// close file and finish
 	xfclose(f);
