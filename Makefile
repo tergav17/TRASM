@@ -4,6 +4,7 @@ all:
 	make -C reloc
 	make -C nm
 	make -C size
+	make -C strip
 	
 clean:
 	make -C as clean
@@ -11,3 +12,4 @@ clean:
 	make -C reloc clean
 	make -C nm clean
 	make -C size clean
+	make -C strip clean
