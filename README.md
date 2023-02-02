@@ -16,6 +16,8 @@ All toolchain utilities generate or utilize object files in some way. TRASM obje
 - Relocation Segment: Includes segment and external relocation information.
 - Symbol Table: Contains symbols records for global and external symbols.
 
+All 16-bit values in the object file are little-endian unless specified otherwise.
+
 ## Binary Segment
 This segment is where all actual instruction and data information resides. When assembling, bytes emitted are sorted into either the text or data segments. The exception to this is the header, which occupies the first 16 bytes of the text segment. Despite being automatically generated, it is treated as part of the text segment. This header contains information critical for manipulating and executing object files. Fields are as follows:
 
@@ -29,3 +31,20 @@ This segment is where all actual instruction and data information resides. When 
 | H_TEXTT    | 0xA - 0xB          | Top of text segment in the binary. Points to the data segment base |
 | H_DATAT    | 0xC - 0xD          | Top of data segment in the binary. Points to the relocation segment base |
 | H_BSST     | 0xE - 0xF          | Top of bss segment. Can be read as the total amount of bytes that must be allocated |
+
+## Relocation Segment
+This segment contains relocation information for the binary segment. Addresses that are to be manipulated during linking and relocation are tracked in this segment. The first two bytes of this segment contain the number of relocation records. Directly after, that number of 3-byte relocation records are stored. Fields are as follows:
+
+| Field Name | Addresses Occupied | Description |
+| ---------- | ------------------ | ----------- |
+| R_TYPE     | 0x0                | Relocation record type. 0 = Undefined, 1 = Text, 2 = Data, 3 = BSS, 4 = Absolute, 5+ = External|
+| R_ADDR     | 0x1 - 0x2          | Address in binary object where relocation must occur, H_ORG is not factored into addresses 
+
+## Symbol Table
+This segment exists directly after the relocation segment. Like the relocation segment, the first two bytes contain the number of symbols present in the table. Each symbol record occupies 11 bytes. External record types must match their type numbers in the relocation segment. Fields are as follows:
+
+| Field Name | Addresses Occupied | Description |
+| ---------- | ------------------ | ----------- |
+| S_NAME     | 0x0 - 0x7          | Name of symbol, zero padded |
+| S_TYPE     | 0x8                | Type of symbol, uses same mappings as R_TYPE |
+| S_VALUE    | 0x9 - 0xA          | Value of the symbol |
