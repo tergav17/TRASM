@@ -1,4 +1,5 @@
 #!/bin/bash
+mkdir -p out
 ../ld_r -v obj/hello.o lib/liba.a
 mv a.out out/a.out
 z80dasm -l -g 0x0000 -o out/a.asm out/a.out
