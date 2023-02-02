@@ -1,5 +1,5 @@
-#ifndef RELOC_H
-#define RELOC_H
+#ifndef NM_H
+#define NM_H
 
 /* includes */
 #include <stdint.h>
@@ -12,8 +12,6 @@
 #define SYMBOL_REC_SIZE ((SYMBOL_NAME_SIZE-1)+3)
 
 #define RELOC_REC_SIZE 3
-
-#define TMP_FILE "rlout.tmp"
 
 /* structs */
 

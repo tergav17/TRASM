@@ -315,7 +315,7 @@ int main(int argc, char *argv[])
 				switch (argv[i][o]) {
 					
 					case 'p': // do not sort
-						flagv++;
+						flagp++;
 						break;
 						
 					case 'r': // sort in reverse order
