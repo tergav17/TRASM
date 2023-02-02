@@ -1,5 +1,10 @@
 as_r
 ld_r
+reloc_r
+nm_r
+size_r
+strip_r
+blob_r
 a.out
 *.tmp
 *.dasm

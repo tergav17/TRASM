@@ -133,6 +133,9 @@ char symcmp(struct symbol *a, struct symbol *b)
 {
 	char out, *ca, *cb;
 	
+	ca = a->name;
+	cb = b->name;
+	
 	// compare values or names
 	if (flagv) {
 		out = a->value < b->value;
@@ -203,9 +206,11 @@ void sadd(uint8_t *rec)
 		if (symcmp(new, sym)) {
 			new->next = sym;
 			prev->next = new;
+			return;
 		}
 		if (!sym->next) {
 			sym->next = new;
+			return;
 		}
 		prev = sym;
 	}
