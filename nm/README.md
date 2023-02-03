@@ -11,7 +11,16 @@ nm [-prgvh] object.o
 | -r      | Reverse sort order |
 | -g      | Show only external symbols |
 | -v      | Sort by value instead of symbol name |
-| -h      | Supress printing of object header information |
+| -h      | Suppress printing of object header information |
 
 ## Description
-Prints the name list of an object file. Be default, these symbols will be sorted by alphabetical order. This can be changed using argument switches. A header displaying object base, entry offset, and size will also be printed unless supressed.
+Prints the name list of an object file. By default, these symbols will be sorted by alphabetical order. This can be changed using argument switches. A header displaying object base, entry offset, and size will also be printed unless suppressed. A symbol record consists of its value, type, and then name. The type codes are as follows:
+
+| Code | Name |
+| ---- | ---- |
+| u    | Undefined |
+| t    | Text |
+| d    | Data |
+| b    | Bss |
+| a    | Absolute |
+| x    | External |
