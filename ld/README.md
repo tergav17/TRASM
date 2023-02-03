@@ -15,3 +15,5 @@ ld [-vs] [-r] object.o ...
 When linking, the entry object file will be the first one passed in the arguments. The link editor will process object files on their own, or ones from a `.a` archive file. All independent object files will automatically be checked into the linker, but archived object files must be referenced first before they will be checked in. This makes linking with a large archive files slower, as the symbol records will need to be checked recursively until all external references have been resolved. Order is not critical after the first object argument, but ordering objects so that external references come after global symbol declaration can speed things up.
 
 The output object file will always start at the base address of `0x0000`. Source object files can have any base, and will be automatically relocated as needed.
+
+An exception to normal linking rules is if a symbol or address is pointing in the header section of the text segment. In this case, it will be relocated to point to the final header of the output object file.
