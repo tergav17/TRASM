@@ -93,3 +93,9 @@ The following operators can be used in an expression
 | &        | 5          | A AND B |
 | ^        | 6          | A XOR B |
 | \|       | 7          | A OR B |
+
+Numeric values can be written in the following formats:
+-Decimal (0)
+-Hexadecimal (0x00 / 0h00 / 00x / 00h)
+-Octal (0o00 / 00o)
+-Binary (0b00, 00b)
