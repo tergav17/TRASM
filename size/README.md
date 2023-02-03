@@ -1,5 +1,5 @@
 # Object Size
-Sizing tool for the TRASM toolchain. Prints sizes of an object
+Sizing tool for the TRASM toolchain. Prints sizes of an object.
 
 ## Usage
 ```
