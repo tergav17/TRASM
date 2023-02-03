@@ -45,7 +45,29 @@ A small number of directives are included in the assembler to make configuration
 | `.data`                           | Sets the current segment to data |
 | `.bss`                            | Sets the current segment to bss |
 | `.if exp`                         | If the exp resolves to 0, skip all until next .endif. Exp must be defined and absolute |
-| `.endif`                          | Marks the end of a `.if` |
-| `.extern`                         | Defines an external symbol |
-| `.globl`                          | Sets a symbol to global, externals cannot be made global |
+| `.endif`                          | Marks the end of a `.if` block |
+| `.extern sym1, sym2, ...`         | Defines an external symbol |
+| `.globl sym1, sym2, ...`          | Sets a symbol to global, externals cannot be made global |
 | `.type name { type_1, ...}`       | Defines a type, will be elaborated on later |
+## Types
+The TRASM assembler has the ability to define custom types. These types act as primitive structs and make handling custom data
+structures a bit easier. The size of a type is equal to the size of its child symbols. Child symbols occupy a different namespace than normal symbols. Below is an example type being defined:
+```
+.type symbol {
+  byte[8] name,
+  byte type,
+  word value,
+  
+  word next
+}
+```
+The offsets for child symbols can be indexed by using the symbols name directly. For example, the statement `symbol.value` will return the absolute value `9`, giving the offset of the element in the struct. In addition to offset, the `.defl` directive can be used to define typed labels:
+```
+.defl symbol exsym {
+  "test",
+  1,
+  0x1234,
+  0
+}
+```
+In this case, the statement `exsym.value` will return the address to the value element in memory. This would be the same as `exsym + symbol.value`.
