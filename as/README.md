@@ -70,4 +70,26 @@ The offsets for child symbols can be indexed by using the symbols name directly.
   0
 }
 ```
-In this case, the statement `exsym.value` will return the address to the value element in memory. This would be the same as `exsym + symbol.value`.
+In this case, the statement `exsym.value` will return the address to the value element in memory. This would be the same as `exsym + symbol.value`. The size of a type can be accessed using `$(type)`.
+
+## Expressions
+All numberic or symbol inputs during assembly are treated as expressions. These will be fully parsed before they are emitted. When evaluating an expression, the order of operation is observed. The expression will either be absolute if it contains only numbers, or it will inherit the segment that the included symbols exist in. When using segment symbols, special rules apply.
+
+- Absolute symbols can be used as-is, and do not have any special rules
+- Segmented symbols (text, data, bss) cannot be intermixed, only one of these symbols allowed per expression
+- External symbols can only be added to or subtracted from using absolute values
+
+The following operators can be used in an expression
+| Operator | Precedence | Function |
+| -------- | ---------- | -------- |
+| !        | 1          | A OR (NOT B) |
+| +        | 2          | A ADD B |
+| -        | 2          | A SUB B |
+| *        | 3          | A MUL B |
+| /        | 3          | A DIV B |
+| %        | 3          | A MOD B |
+| >>       | 4          | A RSHIFT B |
+| <<       | 4          | A LSHIFT B |
+| &        | 5          | A AND B |
+| ^        | 6          | A XOR B |
+| \|       | 7          | A OR B |
