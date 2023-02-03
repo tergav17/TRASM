@@ -262,7 +262,7 @@ void dump(char *src)
 		// value
 		printf("%04x ", sym->value);
 		
-		ename = 'e';
+		ename = 'x';
 		// type
 		switch (sym->type) {
 			case 0:
@@ -330,7 +330,7 @@ int main(int argc, char *argv[])
 						flagv++;
 						break;
 						
-					case 'h': // supress header output
+					case 'h': // suppress header output
 						flagh++;
 						break;
 						
