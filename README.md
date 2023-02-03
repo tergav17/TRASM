@@ -23,10 +23,10 @@ This segment is where all actual instruction and data information resides. When 
 
 | Field Name | Addresses Occupied | Description |
 | ---------- | ------------------ | ----------- |
-| H_MAGIG    | 0x0 - 0x1          | Magic number which identifies the file as an object file. Coincidentally, it is also a Z80 JR instruction which points to directly after the header |
+| H_MAGIC    | 0x0 - 0x1          | Magic number which identifies the file as an object file. Coincidentally, it is also a Z80 JR instruction which points to directly after the header |
 | H_INFO     | 0x2                | Information byte, contains state information object the object |
 | H_ORG      | 0x3 - 0x4          | Text origin. This is the base address that the object expects to be executed at |
-| H_SYS      | 0x5 - 0x7          | Syscall thunk. This is used to quickly link a system entry vector to an executing binary |
+| H_SYS      | 0x5 - 0x7          | Syscall thunk. Holds a jump instruction to an undefined location. This is used to quickly link a system entry vector to an executing binary |
 | H_ENTRY    | 0x8 - 0x9          | Entry offset. Not currently used, but used to defined where the PC should start |
 | H_TEXTT    | 0xA - 0xB          | Top of text segment in the binary. Points to the data segment base |
 | H_DATAT    | 0xC - 0xD          | Top of data segment in the binary. Points to the relocation segment base |
