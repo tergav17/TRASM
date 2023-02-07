@@ -638,6 +638,7 @@ void asm_reloc(struct header *tab, uint16_t addr, uint8_t type)
 	uint16_t diff;
 	uint8_t i, next;
 	
+	
 	if (addr < tab->last) 
 		asm_error("backwards reloc");
 	
@@ -691,7 +692,7 @@ void asm_reloc_out(struct reloc *tab, uint16_t base)
 			sio_out(base & 0xFF);
 			sio_out(base >> 8);
 		}
-		if (++i > RELOC_SIZE) {
+		if (++i >= RELOC_SIZE) {
 			tab = tab->next;
 			i = 0;
 		}
@@ -715,6 +716,9 @@ char asm_escape_char(char c)
 			
 		case 'e':
 			return 0x1B;
+			
+		case 'r':
+			return 0x0D;
 			
 		case 'f':
 			return 0x0C;
@@ -2194,18 +2198,27 @@ char asm_doisr(struct instruct *isr) {
 					}
 					arg = arg - 3;
 				}
+				
+				// check if arg is (ix+*) or not
+				if (arg == 25) {
+					// no (hl)
+					if (reg == 6)
+						return 1;
+				} else {
+					// no h-(hl)
+					if (reg >= 4 && reg <= 6)
+						return 1;
+					
+					// downconvert ix*
+					if (reg >= 23 && reg <= 25) {
+						if (reg == 25)
+							return 1;
+						reg = reg - 19;
+					}
+				}
+				
 				arg = arg - 19;
 				
-				// no h-(hl)
-				if (reg >= 4 && reg <= 6)
-					return 1;
-				
-				// downconvert ix*
-				if (reg >= 23 && reg <= 25) {
-					if (reg == 25)
-						return 1;
-					reg = reg - 19;
-				}
 			}
 			
 			// i* class src?
@@ -2510,7 +2523,7 @@ void asm_meta()
 	reloc_rec++;
 	sio_out(reloc_rec & 0xFF);
 	sio_out(reloc_rec >> 8);
-				
+					
 	// output reloc table
 	asm_reloc_out(textr.head, 0);
 	asm_reloc_out(datar.head, text_top);
