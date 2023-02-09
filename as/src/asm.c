@@ -2223,8 +2223,8 @@ char asm_doisr(struct instruct *isr) {
 			
 			// i* class src?
 			else if (reg >= 23 && reg <= 28) {
-				// no h-(hl)
-				if (arg >= 4 && arg <= 6)
+				// no (hl)
+				if (arg == 6)
 					return 1;
 				
 				// check for ix or iy, correct iy
@@ -2244,11 +2244,13 @@ char asm_doisr(struct instruct *isr) {
 				}
 				
 				// grab ix/iy offset
+				// h/l only allowed for ix+*
 				if (reg == 25) {
 					type = asm_evaluate(&value, con);
 					asm_expect(')');
 					prim++;
-				}
+				} else if (arg == 4 || arg == 5)
+					return 1;
 				
 				reg = reg - 19;
 			}
