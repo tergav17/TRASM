@@ -364,7 +364,7 @@ void extprot(struct object *obj, uint8_t *record)
 	if (!ext) {
 		// alloc new struct
 		ext = (struct extrn *) xalloc(sizeof(struct extrn));
-		memcpy(ext->name, record, SYMBOL_NAME_SIZE-1);
+		memcpy(ext->name, record, SYMBOL_NAME_SIZE);
 		newext = 1;
 		
 		ext->next = NULL;
@@ -682,7 +682,7 @@ char sdump(char *fname, uint8_t index)
 	while (nsym--) {
 		// read name
 		fread(tmp, SYMBOL_NAME_SIZE-1, 1, f);
-		tmp[SYMBOL_NAME_SIZE] = 0;
+		tmp[SYMBOL_NAME_SIZE-1] = 0;
 		
 		// read type and value
 		fread(&type, 1, 1, f);
@@ -691,8 +691,7 @@ char sdump(char *fname, uint8_t index)
 		// if the type is external, skip it for now
 		if (type > 4)
 			continue;
-		
-		
+
 		ext = getext((char *) tmp);
 		
 		// if an external can't be found, move on to the next symbol
