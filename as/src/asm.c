@@ -1730,6 +1730,14 @@ char asm_doisr(struct instruct *isr) {
 			// grab next arg
 			asm_expect(',');
 			arg = asm_arg(&con, 1);
+			
+			// no add i*,hl
+			if (prim == 3 && arg == 10)
+				return 1;
+			
+			// add i*,i*
+			if (prim == 3 && arg == reg)
+				arg = 10;
 		}
 		
 		if (prim == 0) {
