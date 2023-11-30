@@ -100,3 +100,8 @@ Numeric values can be written in the following formats:
 - Hexadecimal (`0x00, 0h00, 00x, 00h`)
 - Octal (`0o00, 00o`)
 - Binary (`0b00, 00b`)
+
+## Known Bugs
+The string and char tokenization has some issues. Any whitespace after the initial `'` or `"` will be ignored.
+
+There is something wrong with the left shift and right shift expression parsing, haven't quite figured out what exactly.
