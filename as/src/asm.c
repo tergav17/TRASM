@@ -88,7 +88,7 @@ char asm_sequ(char *a, char *b) {
 		if (lower >= 'A' && lower <= 'Z')
 			lower += 'a'-'A';
 		
-		if (*a != *b)
+		if (lower != *b)
 			return 0;
 		
 		a++;
